@@ -1,0 +1,1721 @@
+/**
+  This program is free software: you can redistribute it and/or modify
+      it under the terms of the GNU General Public License as published by
+      the Free Software Foundation, either version 3 of the License, or
+      (at your option) any later version.
+  
+      This program is distributed in the hope that it will be useful,
+      but WITHOUT ANY WARRANTY; without even the implied warranty of
+      MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+      GNU General Public License for more details.
+  
+      You should have received a copy of the GNU General Public License
+      along with this program.  If not, see <http://www.gnu.org/licenses/>.
+      
+  This class is responsible for implementing the layers for DnB
+*/
+public class DnB implements Schedulable{
+    @TestVisible
+    private class ContactWrapper {
+        public Boolean isSelected {get;set;}
+        public Contact contact {get;set;}
+        public ContactWrapper(Contact contact){
+            this.contact = contact;
+        }
+    }
+    public List<ContactWrapper> contactList {get;set;}
+    public List<String> selectedContacts {get;set;}
+    public List<Contact> contactsToDisplay {get;set;}
+    public Boolean hasSelectedContacts {get;set;}
+    public Boolean hasContactList {get;set;}
+    @testVisible
+    private List<WebService_Log__c> webServiceLogs;
+    public String sType {get;set;}
+    public Company companySearch {get;set;}
+    public String dunsSelected {get;set;}
+    public String sResult {get;set;}
+    public String sSearchResults {get;set;}
+    public String sDnbAffil {get;set;}
+    @TestVisible 
+    private Map<String,List<String>> mCtryState;
+    public List<SelectOption> lCountries {get;set;}
+    public List<SelectOption> lStates {get;set;}
+    public List<Company> lCompanies {get;set;}
+    public class Company {
+        public String duns {get;set;} 
+        public String parent {get;set;}
+        public String name {get;set;}
+        public String displayName {get;set;}
+        public String state {get;set;}
+        public String country {get;set;}
+        public String locationType {get;set;}
+        public String address {get;set;}
+        public String city {get;set;}
+        public String zip {get;set;}
+        public String phone {get;set;}
+        public boolean isChecked {get;set;}
+        public String confidence {get;set;}
+        public String matchGrade {get;set;}
+    }
+    public Account acc {get;set;}
+    public List<Layer> layers {get;set;}
+    public class Layer{
+        public Layer(String name, String label, Boolean isChecked){
+            this.name = name;
+            this.label = label;
+            error = '';
+            this.isChecked = isChecked;
+        }
+        public String name {get;set;}
+        public String label {get;set;}
+        public String error {get;set;}
+        public Double duration {get;set;}
+        public String attachName {get;set;}
+        public Blob body {get;set;}
+        public boolean isChecked {get;set;}
+        public String request {get;set;}
+    }
+    public Map<String,String> data {get;set;}
+    public String sJSTREE {get;set;}
+    /**
+    * Returns a string value of a given map
+    */
+    public static String getString(Map<String,String> data, String key){
+        if(data.get(key) != null) return data.get(key);
+        else return null;
+    }
+    /**
+    * Returns a integer value of a given map
+    */
+    public static Integer getInt(Map<String,String> data, String key){
+        if(data.get(key) != null) return Integer.valueOf(data.get(key));
+        else return null;
+    }
+    /**
+    * Returns a decimal value of a given map
+    */
+    public static Decimal getDec(Map<String,String> data, String key){
+        if(data.get(key) != null) return Decimal.valueOf(data.get(key));
+        else return null;
+    }
+    /**
+    * Returns a date value of a given map
+    */
+    public static Date getDate(Map<String,String> data, String key){
+        if(data.get(key) != null) {
+            Integer year = Integer.valueOf(data.get(key).left(4));
+            Integer month = Integer.valueOf(data.get(key).substring(5,7));
+            Integer day = Integer.valueOf(data.get(key).substring(8,10));
+            return date.newInstance(year,month,day);
+        }
+        else return null;
+    }
+    public static Date getDate(String input){
+        if(input != null && input.length() == 10) {
+            Integer year = Integer.valueOf(input.left(4));
+            Integer month = Integer.valueOf(input.substring(5,7));
+            Integer day = Integer.valueOf(input.substring(8,10));
+            return date.newInstance(year,month,day);
+        }
+        else return null;
+    }
+    /**
+     * Returns a boolean value of a given map
+     */
+    public static Boolean getBool(Map<String,String> data, String key){
+        if(data.get(key) != null) return data.get(key) == 'true';
+        else return false;
+    }
+    public DnB(){
+        try{
+            String body = [SELECT body FROM Attachment
+                           WHERE ParentId= :ApexPages.currentPage().getParameters().get('id')]
+                .get(0).Body.toString(); 
+            data = utils.getValFromJSON(body);
+            sJSTREE = utils.getJSTREEString(body); 
+        } catch(Exception ex){
+            
+        }
+    }
+    public DnB(ApexPages.StandardController controller) {
+        lCompanies = new List<Company>();
+        getCurrentToken();
+        try{
+            if(Apexpages.currentPage().getParameters().get('accId') != null){
+                acc = [SELECT name,DBNumber__c,DnB_Searched__c,BillingStreet,Phone,BillingCity,
+                       BillingState,BillingPostalCode,BillingCountry,
+                       Annual_Revenue__c,Revenue_Size_Date__c
+                       FROM Account
+                       WHERE id=:Apexpages.currentPage().getParameters().get('accId')].get(0);
+                
+            } else if (Apexpages.currentPage().getParameters().get('id') != null){
+                acc = [SELECT name,DBNumber__c,DnB_Searched__c,BillingStreet,Phone,BillingCity,
+                       BillingState,BillingPostalCode,BillingCountry,
+                       Annual_Revenue__c,Revenue_Size_Date__c
+                       FROM Account
+                       WHERE id=:Apexpages.currentPage().getParameters().get('id')].get(0);
+            } else {
+                acc=(Account) controller.getRecord();
+            }
+            if(Test.isRunningTest()) throw new TestException('test');
+        } catch(Exception ex){
+            
+        }
+        sType = Apexpages.currentPage().getParameters().get('sType');
+        if(ApexPages.currentPage().getParameters().get('save_new') != null) sType='NewAcc';
+        else if(acc.DBNumber__c == null) sType='Search';
+        
+        companySearch = new Company();
+        companySearch.duns = acc.DBNumber__c;
+        companySearch.name = acc.Name;
+        companySearch.address = acc.BillingStreet;
+        companySearch.city = acc.BillingCity;
+        companySearch.phone = acc.Phone;
+        sSearchResults = 'No Search performed';
+        if(acc.BillingCountry != null){
+            if(acc.BillingCountry.length() == 2){
+                companySearch.country = acc.BillingCountry;}else companySearch.country = 'US';
+        } else companySearch.country = 'US';
+        lCountries = new List<SelectOption>();
+        mCtryState = new Map<String,List<String>>();
+        mCtryState.put('US',new List<String>{'AL','AK','AZ','AR','CA','CO','CT','DC','DE','FL','GA',
+            'HI','ID','IL','IN','IA','KS','KY','LA','ME','MD','MA','MI','MN','MS','MO','MT','NE','NV',
+            'NH','NJ','NM','NY','NC','ND','OH','OK','OR','PA','RI','SC','SD','TN','TX','UT','VT','VA',
+            'WA','WV','WI','WY','All'});
+        mCtryState.put('CA',new List<String>{'ON','QC','NS','NB','MB','BC','PE','SK','AB','NL','All'});
+        lCountries.add(new SelectOption('US','US'));
+        lCountries.add(new SelectOption('CA','CA'));
+        getStates();
+        if(acc.BillingState != null && acc.BillingState.length() == 2) companySearch.state = acc.BillingState;
+        layers = new List<Layer>();
+        layers.add(new Layer('DCP_STD','Detailed Company Profile (Standard)', false));
+        layers.add(new Layer('BIR','BIR Report - HTML (USA and Puerto Rico)', false));
+        layers.add(new Layer('BIRT','BIR Report - TEXT (Canada)', false));
+
+        Profile adminProfile = [SELECT Id FROM Profile WHERE Name = 'System Administrator' LIMIT 1];
+        
+        if(System.UserInfo.getProfileId() == adminProfile.Id){
+            layers.add(new Layer('registrations','List Monitoring Registrations', false));
+            layers.add(new Layer('newregistration','Register for Monitoring (USA/Canada, expires 12-30-' 
+                                 + Date.today().year() + ')' , false));
+            layers.add(new Layer('changenotices','List Change Notices', false));
+        }        
+    }
+    /**
+     * Used as a workaround to get callouts working with triggers
+     */
+    @future (callout=true)
+    public static void getAutoDnBLater(Id accId){
+        getAutoDnBNow(accId);
+    }
+    /**
+     * Used as a workaround to get callouts working with triggers
+     */
+    public static void getAutoDnB(Id accId){
+        if(System.isFuture()) getAutoDnBNow(accId);
+        else getAutoDnBLater(accId);
+    }
+    /**
+     * Performs the DnB search for the given account id
+     */
+    private static void getAutoDnBNow(Id accId){
+        Account acc = [SELECT BillingStreet,BillingCity,BillingState,BillingCountry,BillingPostalCode,
+                       Name,Phone,DBNumber__c,DnB_Searched__c 
+                       FROM Account WHERE Id=:accId].get(0);
+        List<WebService_log__c> webServiceLogs = new List<WebService_log__c>();
+        Company companySearch = new Company();
+        companySearch.address = acc.BillingStreet;
+        companySearch.city = acc.BillingCity;
+        companySearch.state = acc.BillingState;
+        companySearch.zip = acc.BillingPostalCode;
+        companySearch.Name = acc.Name;
+        companySearch.phone = acc.Phone;
+        companySearch.country = acc.BillingCountry;
+        companySearch.duns = acc.DBNumber__c;
+        long startTime = Datetime.now().getTime();
+        List<Company> companies = runDnBSearch(companySearch);
+        WebService_Log__c webServiceLog = new WebService_Log__c();
+        webServiceLog.Duration_ms__c = Datetime.now().getTime() - startTime;
+        webServiceLog.OwnerId = UserInfo.getUserId();
+        webServiceLog.WebService__c = 'DnB';
+        webServiceLog.Type__c = 'Match';
+        webServiceLog.Account__c = acc.Id;
+        webServiceLog.success__c = String.valueOf(companies.size());
+        webServiceLogs.add(webServiceLog);
+        if(companies.size() > 0){
+            Company company = companies.get(0);
+            if(company.confidence >= '70%'){
+                acc.BillingStreet = company.address;
+                acc.BillingCity = company.city;
+                acc.BillingState = company.state;
+                acc.BillingPostalCode = company.zip;
+                acc.Name = company.Name;
+                acc.Phone = company.phone;
+                acc.DBNumber__c = company.duns;
+                acc.DnB_Searched__c = true;
+            }
+        }
+        acc.DnB_Future_Search__c = false;
+        if(acc.DBNumber__c != null){
+            if ([SELECT id FROM DnB__c WHERE Layer__c = 'DCP_STD' AND CreatedDate > LAST_N_DAYS:365].size() == 0){
+                Layer layer = new Layer('DCP_STD','Detailed Company Profile (Standard)',false);
+                layer = getProduct(layer,acc);
+                Map<String,String> data = utils.getValFromJSON(layer.Body.toString());
+                updateAccount(acc,data);
+                updateAccountContacts(acc, data);
+                DnB__c dnb = new DnB__c();
+                dnb.Duns__c = acc.dbnumber__c;
+                dnb.Layer__c= layer.name;
+                dnb.Account__c = acc.Id;
+                String order = '.OrderProductResponse.OrderProductResponseDetail.Product.Organization.'
+                    + 'OrganizationName.OrganizationPrimaryName$tab$0.OrganizationName.$';
+                if(data.containsKey(order)){
+                    dnb.Organization_Name__c = getString(data, order);
+                }
+                insert dnb;
+                
+                Attachment attachment = new Attachment();
+                attachment.ParentId = dnb.id;
+                attachment.name = 'Report.json';
+                attachment.Body = layer.body;
+                insert attachment;
+                
+                webServiceLog = new WebService_Log__c();
+                webServiceLog.OwnerId = UserInfo.getUserId();
+                webServiceLog.WebService__c = 'DnB';
+                webServiceLog.Type__c = layer.name;
+                webServiceLog.error__c = layer.error.left(50);
+                webServiceLog.Duration_ms__c = layer.duration;
+                webServiceLog.Account__c = acc.Id;
+                webServiceLog.REST_Request__c = layer.request;
+                webServiceLogs.add(webServiceLog);
+            }
+        }
+        insert webServiceLogs;
+        if(acc.Name != null) update acc;
+    }
+    /**
+     * displays list of states or provinces for a selected country on the VF 
+     */
+    public PageReference getStates(){
+        lStates = new List<SelectOption>();
+        if(!mCtryState.containsKey(companySearch.country.toUpperCase())) companySearch.country='US';
+        for(String state : mCtryState.get(companySearch.country.toUpperCase())){
+            lStates.add(new SelectOption(state, state));
+        }
+        companySearch.state = mCtryState.get(companySearch.country.toUpperCase()).get(0);
+        return null;
+    }
+    /**
+    * Gets a list of all available layers
+    */
+    public PageReference getLayers(){
+        List<WebService_Log__c> webServiceLogs = new List<WebService_Log__c>();
+        Map<String, DnB__c> dnbs = new Map<String, DnB__c>();
+        Map<String, Attachment> attachments = new Map<String, Attachment>();
+        String error = '';
+
+        for(Layer layer : layers){
+            if(layer.isChecked) layer = getProduct(layer, acc);
+        }
+        
+        if(acc.id == null) insert acc;
+
+        for(Layer layer : layers){
+            if(layer.isChecked){
+                if(layer.error == ''){
+                    DnB__c dnb = new DnB__c();
+                    if(layer.Body != null){
+                        data = utils.getValFromJSON(layer.Body.toString());
+                        updateAccount(acc, data);
+                        updateAccountContacts(acc, data);
+                        String key = '.OrderProductResponse.OrderProductResponseDetail.Product.Organization.' 
+                            + 'OrganizationName.OrganizationPrimaryName$tab$0.OrganizationName.$';
+                        if(data.containsKey(key)) dnb.Organization_Name__c = getString(data, key);
+                    }
+                    dnb.Duns__c = acc.dbnumber__c;
+                    dnb.Layer__c = layer.name;
+                    dnb.Account__c = acc.Id;
+                    dnbs.put(layer.name, dnb);
+                }
+                
+                WebService_Log__c webServiceLog = new WebService_Log__c();
+                webServiceLog.OwnerId = UserInfo.getUserId();
+                webServiceLog.WebService__c = 'DnB';
+                webServiceLog.Type__c = layer.name;
+                webServiceLog.error__c = layer.error.left(50);
+                webServiceLog.Account__c = acc.Id;
+                if(layer.request != null) webServiceLog.REST_Request__c = layer.request.left(255);
+                webServiceLogs.add(webServiceLog);
+                error += layer.error;
+            }
+        }
+        insert dnbs.values();
+        insert webServiceLogs;
+        for(Layer layer : layers){
+            if(layer.body != null && dnbs.containsKey(layer.name)){
+                Attachment attachment = new Attachment();
+                attachment.ParentId = dnbs.get(layer.name).id;
+                if(layer.name != 'BIR' && layer.name != 'BIRT'){
+                    attachment.name = 'Report.json';
+                    attachment.Body = layer.body;
+                } else {
+                    String key = '.OrderCompanyReportResponse.OrderCompanyReportResponseDetail.'
+                        + 'Product.ObjectAttachment$tab$0.ContentObject';
+                    if(layer.name == 'BIR'){
+                        attachment.name = 'BIR.html';
+                        data = utils.getValFromJSON(layer.body.toString());
+                        if(data.get(key) != null) attachment.Body = EncodingUtil.base64Decode(data.get(key));
+                        else attachment.Body = Blob.valueof('ll');
+                    } else {
+                        attachment.name = 'BIR.txt';
+                        data = utils.getValFromJSON(layer.body.toString());
+                        if(data.get(key) != null) attachment.Body = EncodingUtil.base64Decode(data.get(key));
+                        else attachment.Body = Blob.valueof('ll');
+                    }
+                    data = null;
+                }
+                attachments.put(layer.name, attachment);
+            }
+        }
+        insert attachments.values();
+        for(Layer layer : layers){
+            if(layer.isChecked && layer.body != null && dnbs.containsKey(layer.name)){
+                dnbs.get(layer.name).AttachmentID__c = attachments.get(layer.name).Id;
+            }
+        }
+        update dnbs.values();
+        if(acc.Name != null) update acc;
+        
+        if(error == '') return new PageReference('/' + acc.Id);
+        else{
+            ApexPages.addmessage(new ApexPages.message(ApexPages.severity.ERROR, error));
+            return null;
+        }
+    }
+    /**
+     * fetches the current DnB authorization token from the credentials stored on 
+     * the WS_Authentication object
+     */
+    public static String getCurrentToken(){
+        String token = '';
+        string url = 'https://maxcvservices.dnb.com/rest/Authentication HTTP/2.0';
+        HttpRequest httpRequest = new HttpRequest();
+        //gets credentials from an object 
+        httpRequest.setHeader('x-dnb-user', utils.getWS_Authentication('dnb_user'));
+        httpRequest.setHeader('x-dnb-pwd', utils.getWS_Authentication('dnb_pwd'));
+        httpRequest.setEndpoint(url);
+        httpRequest.setMethod('POST');
+        Http http = new Http();
+        try {
+            HTTPResponse httpResponse = http.send(httpRequest);
+            token = httpResponse.getHeader('Authorization');
+        } catch(System.CalloutException ex) {
+            System.debug(ex.getMessage());
+        }
+        return token;
+    }
+    /**
+     * allows getProduct to be retrieved without refractoring the code to include a 
+     * third parameter
+     */
+    public static Layer getProduct(Layer layer, Account account){
+        return getProduct(layer, account, '');
+    }
+    /**
+     *  returns a list of layer versions
+     */
+    @TestVisible
+    private static Map<String,String> getVersions(){
+        return new Map<String,String>{'DCP_PREM' => '2.0',
+            'PBR_FSS_V7.1' => '3.0',
+            'PPR_CCS_V9' => '3.0',
+            'PUBREC_DTLS' => '3.0',
+            'PUBREC_UCC' => '3.0',
+            'PIAP_PREM' => '4.0',
+            'PIAP_ENH' => '4.0',
+            'PAC_PLUS' => '2.0',
+            'LNK_FF' => '3.1',
+            'DCP_STD' => '2.0',
+            'PIAP_STD' => '3.0',
+            'BIR' => '3.0',
+            'CNTCT_STD' => '2',
+            'FIN_HGLT' => '3.0',
+            'NEWS_MDA' => '3.0',
+            'PUBREC_BR' => '3.0',
+            'PUBREC_OS' => '3.0',
+            'RTNG_TRND' => '3.0',
+            'VIAB_RAT' => '3.0',
+            'SBCRP' => '3.0',
+            'CST_PRD_4' => '2.0',
+            'CST_PRD_3' => '2.0',
+            'changenotices' => '4.2',
+            'registrations' => '4.0',
+            'newregistration' => '4.0',
+            'findcontact' => '6.1',
+            'cntct' => '4.0',
+            'cntct_plus' => '4.0'
+            };
+    }
+    /**
+     * returns the url of a given layer, account, and version
+     */
+    @TestVisible
+    private static String getUrl(Layer layer, Account account, String parameter){
+        string url = '';
+        if(layer.name != 'BIRT' && layer.name != 'LNK_FF'){
+            url = 'https://maxcvservices.dnb.com/V' + getVersions().get(layer.name) + '/organizations/'
+                + account.dbnumber__c + '/products/' + layer.name;
+        }
+        if(layer.name == 'BIR'){
+            url += '?ProductFormatPreferenceCode=0000';
+        }
+        if(layer.name == 'BIRT'){
+            url += 'https://maxcvservices.dnb.com/V'+ getVersions().get('BIR')+'/organizations/'
+                + account.dbnumber__c + '/products/BIR?ProductFormatPreferenceCode=00000';
+        }
+        if(layer.name == 'LNK_FF'){
+            url += 'https://maxcvservices.dnb.com/V' + getVersions().get('LNK_FF') + '/organizations/'
+                + account.dbnumber__c + '/products/LNK_FF?'
+                + 'FamilyTreeMemberRoleCode-1=0000&FamilyTreeMemberRoleCode-2=00000'
+                + '&FamilyTreeMemberRoleCode-3=00000&FamilyTreeMemberRoleCode-4=00000'
+                + '&FamilyTreeMemberRoleCode-5=00000&FamilyTreeMemberRoleCode-6=00000';
+        }
+        if(layer.name == 'changenotices'){
+            WebService_Log__c webServiceLog;
+            try{
+                webServiceLog = [SELECT CreatedDate FROM WebService_Log__c
+                                 WHERE Type__c = 'DnB Monitoring' AND Result__c != 'Error'
+                                 ORDER BY CreatedDate DESC LIMIT 1];
+            } catch(QueryException ex){} 
+            String fromTimeStamp;
+            if(webServiceLog != null) {
+                fromTimeStamp = webServiceLog.CreatedDate.format('yyyy-MM-dd HH:mm:ss').replace(' ','T')
+                    + '.000';
+            }
+            
+            if(fromTimeStamp != null){
+                url = 'https://maxcvservices.dnb.com/V' + getVersions().get('changenotices')
+                    + '/monitoring/changenotices'
+                    + '?MonitoringProfileID-1=0000&ChangeDetectionFromTimestamp=' + fromTimeStamp;
+            }
+            
+            url += '&CandidatePerPageMaximumQuantity=1000';
+            //required to get more than 100, advance by the quantity to fetch the next page
+            url += '&CandidateDisplayStartSequenceNumber=1'; 
+        }
+        if(layer.name == 'registrations'){
+            Integer thisYear = Date.today().year();
+            url = 'https://maxcvservices.dnb.com/V' + getVersions().get('registrations')
+                + '/monitoring/registrations' + '?RegisteredFromDate=' + thisYear
+                + '-01-01&RegisteredToDate=' + thisYear + '-12-31'
+                + '&CandidatePerPageMaximumQuantity=1000';
+        }
+        if(layer.name == 'findcontact'){
+            url = 'https://maxcvservices.dnb.com/V'+ getVersions().get('findcontact') + '/organizations'
+                + '?findcontact=true&DUNSNumber-1=' + account.DBNumber__c + '&CandidatePerPageMaximumQuantity=100';
+        }
+        if(layer.name == 'cntct'){
+            url = 'https://maxcvservices.dnb.com/V'+ getVersions().get('cntct') + '/organizations/'
+                + account.DBNumber__c + '/products/CNTCT?PrincipalIdentificationNumber=' + parameter;
+        }
+        if(layer.name=='cntct_plus'){
+            url = 'https://maxcvservices.dnb.com/V'+ getVersions().get('cntct_plus') + '/organizations/'
+                + account.DBNumber__c + '/products/CNTCT_PLUS?PrincipalIdentificationNumber=' + parameter;
+        }
+        if(layer.name=='newregistration'){
+            url = 'https://maxcvservices.dnb.com/V' + getVersions().get('newregistration')
+                + '/monitoring/registrations';
+        }
+        return url;
+    }
+    /**
+     * gets the json payload for a new monitoring registration
+     */ 
+    @TestVisible
+    private static String getNewRegistrationBody(Account account){
+        String plainDate = Datetime.now().format('YYYYMMdd');
+        JSONGenerator body = JSON.createGenerator(true);
+        
+        body.writeStartObject();
+        body.writeFieldName('mon:AddMonitoringRegistrationRequest');
+        body.writeStartObject();
+        body.writeStringField('@xmlns$mon', 'http://services.dnb.com/MonitoringServiceV2.0');
+        body.writeFieldName('AddMonitoringRegistrationRequestDetail');
+        body.writeStartObject();
+        body.writeFieldName('InquiryDetail'); 
+        body.writeStartObject();
+        body.writeStringField('DUNSNumber', account.DBNumber__c);
+        if(account.CurrencyIsoCode == 'CAD') body.writeStringField('CountryISOAlpha2Code', 'CA');
+        else body.writeStringField('CountryISOAlpha2Code', 'US');
+        body.writeEndObject();   
+        body.writeFieldName('MonitoringRegistrationSpecification');
+        body.writeStartObject();
+        body.writeNumberField('MonitoringProfileID', 0000);
+        body.writeNumberField('NotificationProfileID', 0000);
+        body.writeStringField('TradeUpIndicator', 'false');
+        body.writeStringField('AutoRenewalIndicator', 'false');
+        body.writeStringField('SubjectCategoryText', 'High');
+        body.writeEndObject();  
+        body.writeFieldName('InquiryReferenceDetail');
+        body.writeStartObject();
+        body.writeStringField('CustomerReferenceText', plainDate + '_Monitoring');
+        body.writeStringField('CustomerBillingEndorsementText', plainDate + '_Monitoring');
+        body.writeEndObject();
+        body.writeEndObject();
+        body.writeEndObject();
+        body.writeEndObject();
+        
+        return body.getAsString();
+    }
+    /**
+     * performs the appropriate callout for a given layer, account, and additional parameters
+     */
+    public static Layer getProduct(Layer layer, Account account, String parameter){
+        try {
+            String httpResponseBody;
+            String url = getUrl(layer, account, parameter);
+
+            HttpRequest httpRequest = new HttpRequest();
+            httpRequest.setTimeout(40000);
+            httpRequest.setHeader('Authorization', getCurrentToken());
+            
+            if(layer.name == 'newregistration'){
+                httpRequest.setMethod('POST');
+                httpRequest.setHeader('Content-Type','application/json'); 
+                httpRequest.setBody(getNewRegistrationBody(account));
+                
+            } else {
+                httpRequest.setMethod('GET');
+            }
+
+            httpRequest.setEndpoint(url);
+            layer.request = url;
+            
+            Http http = new Http();
+            Long requestStart = Datetime.now().getTime();
+            HttpResponse httpResponse = http.send(httpRequest);
+            layer.duration = Datetime.now().getTime() - requestStart;
+            
+            httpResponseBody = httpResponse.getBody();
+            
+            if(httpResponse.getStatusCode() == 200 && layer.name == 'newregistration'){
+                account.DnB_Monitoring_Expiration__c = Date.newInstance(Date.today().year(), 12, 30);
+                account.DnB_Monitoring_Date_Registered__c = Date.today();
+                account.DnB_Monitoring_Registered_By__c = UserInfo.getUserId();
+                update account;
+            }
+            
+            if(httpResponseBody.mid(1,1) == '\'') httpResponseBody = httpResponseBody.replace('\'','"');
+
+            layer.error = getDnbError(httpResponseBody);
+            
+            if(layer.error == ''){
+                layer.body = Blob.valueOf(httpResponseBody);
+            }
+        } catch(Exception ex) {
+            System.debug(ex);
+            layer.error = ex.getMessage();
+        }
+        return layer;
+    }
+    /**
+     * parses DnB errors ease readability
+     */
+    @TestVisible
+    private static String getDnbError(String httpResponseBody){
+        String dnbError = '';
+        JSONParser parser = JSON.createParser(httpResponseBody);
+        while (parser.nextToken()!=null) {
+            if ((parser.getCurrentToken() == JSONToken.FIELD_NAME) &&
+                (parser.getText() == 'SeverityText')) {
+                    parser.nextToken();
+                    if(parser.getText()=='Error'){
+                        parser.nextToken();
+                        parser.nextToken();
+                        dnbError = parser.getText();
+                        parser.nextToken();
+                        parser.nextToken();
+                        dnbError += '-' + parser.getText();
+                        break;
+                    }
+                }
+        }
+        return dnbError;
+    }
+    /**
+     * performs the company search for pages
+     */
+    public PageReference searchCompany(){
+        if(companySearch.name == ''){
+            ApexPages.addmessage(new ApexPages.message(ApexPages.severity.ERROR,'The name is mandatory'));
+        } else {
+            WebService_Log__c webServiceLog = new WebService_Log__c();
+            try{
+                lCompanies = runDnBSearch(companySearch);
+                sSearchResults = String.valueOf(lCompanies.size()) + ' items';
+                webServiceLog.success__c = String.valueOf(lCompanies.size());
+                if(Test.isRunningTest()) throw new TestException();
+            }catch(Exception ex) {
+                sSearchResults = ex.getMessage();
+                webServiceLog.error__c = ex.getMessage().left(50);
+                ApexPages.addmessage(new ApexPages.message(ApexPages.severity.ERROR, ex.getMessage()));
+            }
+            webServiceLog.OwnerId = UserInfo.getUserId();
+            webServiceLog.WebService__c = 'DnB';
+            webServiceLog.Type__c = 'Match';
+            webServiceLog.Account__c = acc.Id;
+            insert webServiceLog;
+        }
+        return null;
+    }
+    /**
+     * @description calls out and parses the DnB company search JSON response
+     */
+    public static List<Company> runDnBSearch(Company companySearch){
+        String url = 'https://maxcvservices.dnb.com/V4.0/organizations?match=true';
+        if(companySearch.duns != null && companySearch.duns != ''){
+            url += '&DUNSNumber=' + EncodingUtil.urlEncode(companySearch.duns, 'UTF-8');
+        }
+        if(companySearch.name != null && companySearch.name != ''){
+            url += '&SubjectName=' + EncodingUtil.urlEncode(companySearch.name, 'UTF-8');
+        }
+        if(companySearch.address != null && companySearch.address != ''){
+            url += '&StreetAddressLine-n=' + EncodingUtil.urlEncode(companySearch.address, 'UTF-8');
+        }
+        if(companySearch.phone != null && companySearch.phone != ''){
+            url += '&TelecommunicationNumber=' + EncodingUtil.urlEncode(companySearch.phone, 'UTF-8');
+        }
+        if(companySearch.country != null && companySearch.country != ''){
+            url += '&CountryISOAlpha2Code=' + EncodingUtil.urlEncode(companySearch.country, 'UTF-8');
+        }
+        if(companySearch.state != null && companySearch.state != '' && companySearch.state != 'All'){
+            url += '&TerritoryName=' + EncodingUtil.urlEncode(companySearch.state, 'UTF-8');
+        }
+        if(companySearch.city != null && companySearch.city != ''){
+            url += '&PrimaryTownName=' + EncodingUtil.urlEncode(companySearch.city, 'UTF-8');
+        }
+        
+        HttpRequest httpRequest = new HttpRequest();
+        httpRequest.setHeader('Authorization', getCurrentToken());
+        System.Debug(url);
+        httpRequest.setEndpoint(url);
+        httpRequest.setMethod('GET');
+        
+        Http http = new Http();
+        HTTPResponse httpResponse = http.send(httpRequest);
+        Map<String,String> data = utils.getValFromJSON(httpResponse.getBody());
+        System.debug(httpResponse.getBody());
+        
+        List<Company> companies = new List<Company>();
+        for (Integer i = 0; i < getInt(data, '.MatchResponse.MatchResponseDetail.MatchCandidate$tab$Size'); i++) {
+            Company company = new Company();
+            String pre = '.MatchResponse.MatchResponseDetail.MatchCandidate$tab$';
+            company.Name = getString(data, pre + i + '.OrganizationPrimaryName.OrganizationName.$');
+            company.duns = getString(data, pre + i + '.DUNSNumber');
+            company.address = getString(data, pre + i + '.PrimaryAddress.StreetAddressLine$tab$0.LineText');
+            company.phone = getString(data, pre + i + '.TelephoneNumber.TelecommunicationNumber');
+            company.locationType = getString(data, pre + i 
+                                             + '.FamilyTreeMemberRole$tab$0.FamilyTreeMemberRoleText.$');
+            company.state = getString(data, pre + i + '.PrimaryAddress.TerritoryAbbreviatedName');
+            company.phone = getString(data, pre + String.valueOf(i) +'.TelephoneNumber.TelecommunicationNumber');
+            String pre2 = 
+                '.OrderProductResponse.OrderProductResponseDetail.Product.Organization.Location.PrimaryAddress.';
+            company.city = getString(data, pre2 + 'PrimaryTownName');
+            company.zip = getString(data, pre2 + 'PostalCode');
+            company.city = getString(data, pre + String.valueOf(i) +'.PrimaryAddress.PrimaryTownName');
+            company.zip = getString(data, pre + String.valueOf(i) +'.PrimaryAddress.PostalCode');
+            company.confidence = getString(data, pre + String.valueOf(i) 
+                                           + '.MatchQualityInformation.ConfidenceCodeValue') + '0%';
+            company.matchGrade = getString (data, pre + String.valueOf(i) 
+                                           + '.MatchQualityInformation.MatchGradeText');
+            company.country = companySearch.country;
+            companies.add(company);
+        }
+        return companies;
+    }
+    /**
+     * gets the afflilates
+     */ 
+    public PageReference getAffilates(){
+        sDnbAffil = '';
+        Layer layer = new Layer('LNK_FF','Corporate Linkage',false);
+        lCompanies = new List<Company>();
+
+        WebService_Log__c webServiceLog = new WebService_Log__c();
+        webServiceLog.OwnerId = UserInfo.getUserId();
+        webServiceLog.WebService__c = 'DnB';
+        webServiceLog.Type__c = layer.name;
+        webServiceLog.Account__c = acc.Id;
+        webServiceLog.Rest_Request__c = layer.request;
+        try{
+            layer = getProduct(layer, acc);
+            if(layer.Body != null){
+                data = utils.getValFromJSON(layer.Body.toString());
+                //Ultimate Parent
+                Company company = new Company();
+                String pre = '.OrderProductResponse.OrderProductResponseDetail.Product.Organization';
+                company.Name = getString(data, pre 
+                                         + '.OrganizationName.OrganizationPrimaryName.OrganizationName.$');
+                company.displayName = company.Name;
+                company.duns = dunsTo9Digit(getString(data, pre + '.SubjectHeader.DUNSNumber'));
+                company.address = getString(data, pre 
+                                            + '.Location.PrimaryAddress.StreetAddressLine$tab$0.LineText');
+                company.city = getString(data, pre + '.Location.PrimaryAddress.PrimaryTownName');
+                company.zip = getString(data, pre + '.Location.PrimaryAddress.PostalCode');
+                company.locationType = getString(data, pre + 
+                              '.OrganizationDetail.FamilyTreeMemberRole$tab$0.FamilyTreeMemberRoleText.$');
+                company.state = getString(data, pre + '.Location.PrimaryAddress.TerritoryOfficialName');
+                lCompanies.add(company);
+                sDnbAffil += '\'' + company.duns + '\',';
+                recurAffiliates(pre, '');
+            }
+            if(lCompanies.size() != 0) sSearchResults = String.valueOf(lCompanies.size()) + ' affiliates';
+            else if(layer.error != null) sSearchResults = layer.error;
+            else sSearchResults = 'No affiliates found';
+            
+            webServiceLog.Success__c = String.valueOf(lCompanies.size());
+            webServiceLog.Duration_ms__c = layer.duration;
+            webServiceLog.error__c = layer.error.left(50);
+            if(Test.isRunningTest()) throw new TestException();
+        }catch(Exception ex){
+            webServiceLog.error__c = ex.getMessage().left(50);
+        }
+        insert webServiceLog;
+        data = null;
+        return null;
+    }
+    /**
+    * performs a affiliate search
+    */
+    public void recurAffiliates(String path, String indent){
+        indent += '&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;';
+        for(Integer i = 0; i < getInt(data, path + '.Linkage.FamilyTreeMemberOrganization$tab$Size'); i++){
+            Company company = new Company();
+            String pre = '.Linkage.FamilyTreeMemberOrganization$tab$';
+            company.Name = getString(
+                data, path + pre + i + '.OrganizationName.OrganizationPrimaryName.OrganizationName.$');
+            company.displayName = indent + getString(
+                data, path + pre + i + '.OrganizationName.OrganizationPrimaryName.OrganizationName.$');
+            company.address = getString(
+                data, path + pre + i + '.Location.PrimaryAddress.StreetAddressLine$tab$0.LineText');
+            company.city = getString(
+                data, path + pre + i + '.Location.PrimaryAddress.PrimaryTownName');
+            company.zip = getString(
+                data, path + pre + i + '.Location.PrimaryAddress.PostalCode');
+            company.locationType = getString(
+                data, path + pre + i 
+                + '.OrganizationDetail.FamilyTreeMemberRole$tab$0.FamilyTreeMemberRoleText.$');
+            company.state = getString(
+                data, path + pre + i + '.Location.PrimaryAddress.TerritoryOfficialName');
+            
+            company.duns = dunsTo9Digit(getString(data, path + pre + i +'.SubjectHeader.DUNSNumber'));
+            
+            if(getString(data, path + pre + i + '.Linkage.ParentOrganization.DUNSNumber') == null)
+                company.parent = dunsTo9Digit(getString(data, path + pre + i 
+                                                        + '.Linkage.HeadquartersOrganization.DUNSNumber'));
+            else company.parent = dunsTo9Digit(getString(data, path + pre + i 
+                                                          + '.Linkage.ParentOrganization.DUNSNumber'));
+            
+            lCompanies.add(company);
+
+            if(getInt(data,path + pre + i + '.Linkage.FamilyTreeMemberOrganization$tab$Size') > 0){
+                recurAffiliates(path + pre + i, indent);
+            }
+            sDnbAffil += '\'' + company.duns + '\',';
+        }
+    }
+    /**
+    * provides affiliate functionality to a page
+    */
+    public PageReference impAff(){
+        List<Account> accounts = new List<Account>();
+        Map<String,Account> affiliates = new Map<String,Account>();
+        String query = 'SELECT id, Name, DBNumber__c, ParentId FROM Account WHERE DBNumber__c IN ('
+            + sDnbAffil.left(sDnbAffil.length() - 1) + ')';
+        //sSearchResults = query;
+        if(sDnBAffil != null){
+            for(Account account : Database.query(query)){affiliates.put(account.DBNumber__c, account);}
+        }
+        Account account;
+        for(Company company : lCompanies){
+            if(company.isChecked && !affiliates.containsKey(company.duns)){
+                account = new Account(); 
+                account.BillingStreet = company.address; 
+                account.BillingCity = company.city; 
+                account.BillingState = company.state; 
+                account.BillingPostalCode = company.zip; 
+                account.Name = company.Name; 
+                account.DBNumber__c = company.duns; 
+                accounts.add(account);
+                affiliates.put(account.DBNumber__c,account);
+            }
+        } 
+        insert accounts; 
+        accounts = new List<Account>(); 
+        for(Company company : lCompanies){
+            if(affiliates.containsKey(company.duns) && affiliates.containsKey(company.parent)){
+                account = affiliates.get(company.duns);
+                account.parentId = affiliates.get(company.parent).Id; 
+                accounts.add(account);
+            }
+        } 
+        update accounts; 
+        return cancel();
+    }
+    /**
+     * prefixes a given string with zeros if it is under 9 characters
+     */
+    @TestVisible
+    private String dunsTo9Digit(String duns){
+        while(duns.length() < 9){
+            duns = '0' + duns;
+        }
+        return duns;
+    }
+    /**
+     * the company selected for a company search
+     */
+    public PageReference selectCompany(){
+        Integer index = 0;
+        for (Company company : lCompanies) {
+            if(dunsSelected == company.duns){
+                acc.BillingStreet = company.address.toUpperCase();
+                acc.BillingCity = company.city.toUpperCase();
+                acc.BillingState = company.state.toUpperCase();
+                acc.BillingPostalCode = company.zip.toUpperCase();
+                acc.BillingCountry = company.country.toUpperCase();
+                acc.Name = company.Name.toUpperCase();
+                acc.Phone = company.phone.toUpperCase();
+                acc.DBNumber__c = dunsSelected;
+                acc.DnB_Searched__c = true;
+                acc.DnB_Search_Name__c = companySearch.Name;
+                acc.DnB_Search_Name_Selected__c = company.Name;
+                acc.DnB_Search_Confidence__c = company.confidence;
+                acc.DnB_Search_MatchGrade__c = company.matchGrade;
+                acc.DnB_Search_Index__c = 1;
+                
+                List<Account> accounts = [SELECT name, DBNumber__c, DnB_Searched__c, BillingStreet, Phone,
+                                          BillingCity, BillingState, BillingPostalCode 
+                                          FROM Account WHERE DBNumber__c = :dunsSelected LIMIT 1];
+                
+                if(accounts.size() > 0){
+                    if(acc.Id != null && accounts.get(0).Id != acc.Id){
+                        accounts.get(0).Cdt_App_Annual_Revenue__c = acc.Cdt_App_Annual_Revenue__c; 
+                        accounts.get(0).Cdt_App_Company_Name__c = acc.Cdt_App_Company_Name__c;
+                        accounts.get(0).Cdt_App_Employees__c = acc.Cdt_App_Employees__c;
+                        accounts.get(0).Cdt_App_Entity_Type__c = acc.Cdt_App_Entity_Type__c;
+                        accounts.get(0).Cdt_App_In_business_Since__c = acc.Cdt_App_In_business_Since__c;
+                        merge accounts.get(0) acc;
+                    } 
+                    acc = accounts.get(0);
+                }
+                
+                for(Layer layer : layers){
+                    layer.isChecked = (layer.Name == 'DCP_STD');
+                }
+                
+                getLayers();
+                
+                if(acc.Id == null) insert acc;
+                else update acc;
+            }
+            index++;
+        }
+        return new PageReference('/' + acc.Id);
+    }
+    /**
+     * method to create an account if not found
+     */
+    public PageReference noSelection(){
+        acc.BillingStreet = companySearch.address;
+        acc.BillingCity = companySearch.city;
+        acc.BillingState = companySearch.state;
+        acc.BillingPostalCode = companySearch.zip;
+        acc.Name = companySearch.name;
+        acc.Phone = companySearch.phone;
+        acc.DBNumber__c = companySearch.duns;
+        acc.DnB_Searched__c = true;
+        if(acc.Name != null && acc.Id == null) insert acc; 
+        return new PageReference('/' + acc.Id);
+    }
+    /**
+     * provides a cancel button for a VF page
+     */
+    public PageReference cancel(){
+        if(acc.Id == null) return new PageReference('/001/o');
+        else return new PageReference('/' + acc.Id);
+    }
+    /**
+     * updates a given account with data from a given map
+     */
+    @TestVisible
+    private static void updateAccount(Account acc, Map<String,String> data){
+        String pre = '.OrderProductResponse.OrderProductResponseDetail.Product.Organization.';
+        acc.Name = getString(data, pre + 'OrganizationName.OrganizationPrimaryName$tab$0.OrganizationName.$');
+        acc.BillingStreet = getString(data, pre 
+                                      + 'Location.PrimaryAddress$tab$0.StreetAddressLine$tab$0.LineText');
+        acc.BillingCity = getString(data, pre + 'Location.PrimaryAddress$tab$0.PrimaryTownName');
+        acc.BillingState = getString(data, pre + 'Location.PrimaryAddress$tab$0.TerritoryAbbreviatedName');
+        acc.BillingPostalCode = getString(data, pre + 'Location.PrimaryAddress$tab$0.PostalCode');
+        acc.Phone = getString(data, pre + 'Telecommunication.TelephoneNumber$tab$0.TelecommunicationNumber');
+        acc.Family_Tree_Member_Role__c = 
+            getString(data, pre + 'OrganizationDetail.FamilyTreeMemberRole$tab$0.FamilyTreeMemberRoleText.$');
+        acc.Control_Ownership_Date__c = getString(data, pre + 'OrganizationDetail.ControlOwnershipDate.$');
+        acc.Control_Ownership_Type__c = getString(data, pre + 'OrganizationDetail.ControlOwnershipTypeText.$');
+        acc.Operating_Status__c = getString(data, pre + 'OrganizationDetail.OperatingStatusText.$');
+        acc.Organization_Start_Year__c = getString(data, pre + 'OrganizationDetail.OrganizationStartYear');
+        acc.Website = getString(data, pre + 'Telecommunication.WebPageAddress$tab$0.TelecommunicationAddress');
+        acc.D_B_Standard_Rating__c = getString(data, pre + 'Assessment.DNBStandardRating.DNBStandardRating');
+        
+        for(Integer i = 0; i < getInt(data, pre 
+                                      + 'Assessment.FinancialStressScore$tab$0.ScoreCommentary$tab$Size'); i++){ 
+            acc.FSS_Commentary__c += getString(data, pre 
+                                               + 'Assessment.FinancialStressScore$tab$0.ScoreCommentary$tab$' 
+                                               + i + '.CommentaryText.$') + '\r';
+        }
+        
+        acc.CCS_Class_Score_Description__c  
+            = getString(data, pre + 'Assessment.CommercialCreditScore$tab$0.ClassScoreDescription');
+        String naics;
+        for(Integer i=0; i < getInt(data, pre + 'IndustryCode.IndustryCode$tab$Size'); i++){
+            if(getString(data, pre + 'IndustryCode.IndustryCode$tab$' + i + '.@TypeText') == 'NAICS' &&
+               getString(data, pre + 'IndustryCode.IndustryCode$tab$' + i + '.DisplaySequence') == '1'){
+                naics = getString(data, pre + 'IndustryCode.IndustryCode$tab$' + i + '.IndustryCode.$');
+            }
+        }
+        
+        if(naics != null){
+            List<NAICS__c> naicses = [Select id FROM NAICS__c WHERE NAICS_Code__c = :naics LIMIT 1];
+            if(naicses.size() > 0) acc.NAICS__c = naicses.get(0).Id;
+        }
+        
+        String pre2 = pre + 'RegisteredDetail.OrganizationIdentificationNumberDetail$tab$';
+        for(Integer i = 0; i < getInt(data, pre2 + 'Size'); i++){
+            if(getString(data, pre2 + i + '.@TypeText') == 'Federal Taxpayer Identification Number (US)'){
+                acc.Taxpayer_Id__c = getString(data, pre2 + i + '.OrganizationIdentificationNumber');
+            }
+        }
+        
+        acc.History_Rating__c = getString(data,pre+'Assessment.HistoryRatingText.$');
+        acc.Sales_Revenue_Amount__c =
+            getDec(data, pre + 'Financial.KeyFinancialFiguresOverview$tab$0.SalesRevenueAmount$tab$0.$');
+        acc.Employees_Consolidated__c = 
+            getDec(data, pre + 'EmployeeFigures.ConsolidatedEmployeeDetails.TotalEmployeeQuantity');
+        acc.Employees_Total__c = 
+            getDec(data, pre + 'EmployeeFigures.IndividualEntityEmployeeDetails.TotalEmployeeQuantity');
+        acc.Paydex_Score__c = 
+            getDec(data, pre + 'BusinessTrading.Purchaser.CurrentPaydexScore.TwelveMonthsPaydex.PaydexScore');
+        acc.Experience_Count__c =
+            getDec(data, pre + 'BusinessTrading.Purchaser.PurchaserDerivedData$tab$0.'
+                   + 'TwelveMonthsDataCoveragePayments.PaymentPeriodSummary$tab$0.'
+                   + 'PaymentsWithHighCredit.ExperienceCount');
+        acc.High_Credit_Max_Amount__c = 
+            getDec(data, pre + 'BusinessTrading.Purchaser.PurchaserDerivedData$tab$0.'
+                   + 'TwelveMonthsDataCoveragePayments.PaymentPeriodSummary$tab$0.'
+                   + 'PaymentsWithHighCredit.HighCreditMaximumAmount.$');
+        acc.High_Credit_Ave_Amount__c = 
+            getDec(data, pre + 'BusinessTrading.Purchaser.PurchaserDerivedData$tab$0.'
+                   + 'TwelveMonthsDataCoveragePayments.PaymentPeriodSummary$tab$0.'
+                   + 'PaymentsWithHighCredit.AverageHighCreditAmount.$');
+        acc.Paydex_Median_Quartile_Score__c = 
+            getDec(data, pre + 'BusinessTrading.PaydexScoreNorms.PaydexScoreIndustryNorms$tab$0.'
+                   + 'PaydexMedianQuartileScore');
+        acc.FSS_Raw_Score__c = 
+            getDec(data, pre + 'Assessment.FinancialStressScore$tab$0.RawScore');
+        acc.FSS_Class_Score__c = 
+            getDec(data, pre + 'Assessment.FinancialStressScore$tab$0.ClassScore');
+        acc.FSS_National_Percentile__c = 
+            getDec(data, pre + 'Assessment.FinancialStressScore$tab$0.NationalPercentile');
+        acc.CCS_Raw_Score__c = getDec(data, pre + 'Assessment.CommercialCreditScore$tab$0.RawScore');
+        acc.CCS_Class_Score__c = getDec(data, pre + 'Assessment.CommercialCreditScore$tab$0.ClassScore');
+        
+        if(acc.Annual_Revenue__c != null){
+            Decimal revenue = 
+                getDec(data, pre + 'Financial.KeyFinancialFiguresOverview$tab$0.SalesRevenueAmount$tab$0.$');
+            if(revenue != null){ 
+                acc.Annual_Revenue__c = revenue;
+                acc.Revenue_Size_Date__c = Date.Today();
+            }
+        }
+
+        acc.Claims_Indicator__c = getBool(data, pre + 'Events.LegalEvents.ClaimsIndicator');
+        acc.Secured_Filings__c = getBool(data, pre + 'Events.FinancingEvents.SecuredFilingsIndicator');
+        acc.FSS_Score_Date__c = getDate(data, pre + 'Assessment.FinancialStressScore$tab$0.ScoreDate.$');
+        acc.CCS_Score_Date__c = getDate(data, pre + 'Assessment.CommercialCreditScore$tab$0.ScoreDate.$'); 
+    }
+    /**
+     * inserts or updates contacts found in the DCP layer
+     */ 
+    @TestVisible
+    private static void updateAccountContacts(Account acc, Map<String, String> data){
+        List<Contact> contacts = new List<Contact>();
+        String pre = '.OrderProductResponse.OrderProductResponseDetail.Product.Organization.'
+            + 'PrincipalsAndManagement.CurrentPrincipal$tab$';
+        for(Integer i = 0; i < getInt(data, pre + 'Size'); i++){
+            Contact contact = new Contact();
+            
+            String fullName = getString(data, pre + i + '.PrincipalName.FullName');
+            String[] fullNameParts = fullName.split(' ');
+            if(fullNameParts.size() > 3) {
+                contact.FirstName = fullNameParts[0];
+                for(Integer j = 1; j < (fullNameParts.size() - 1); j++){
+                	contact.Middle_Name__c += fullNameParts[j] + ' ';
+                }
+                contact.LastName = fullNameParts[fullNameParts.size()];
+            }
+            else if (fullNameParts.size() == 3){
+                contact.FirstName = fullNameParts[0];
+                contact.Middle_Name__c = fullNameParts[1];
+                contact.LastName = fullNameParts[2];
+            }
+            else if(fullNameParts.size() == 2){
+                contact.FirstName = fullNameParts[0];
+                contact.LastName = fullNameParts[1];
+            }  
+            else {
+                contact.LastName = fullName;
+            }           
+            contact.Title = getString(data, pre + i + '.JobTitle$tab$0.JobTitleText.$');
+            contact.DnB_Principal_ID_Number__c = getString(data, pre + i + '.PrincipalIdentificationNumber'
+                                                           + 'Detail$tab$0.PrincipalIdentificationNumber');
+            contact.AccountId = acc.id;
+            
+            if(contact.DnB_Principal_ID_Number__c != null) contacts.add(contact);
+        }
+        if(contacts.size() > 0){
+            
+            List<String> contactPins = new List<String>();
+            
+            for(Contact contact : contacts){
+                contactPins.add(contact.DnB_Principal_ID_Number__c);
+            }
+            
+            List<Contact> dupes = [SELECT FirstName, Middle_Name__c, LastName, Title,
+                                   DnB_Principal_ID_Number__c
+                                   FROM Contact
+                                   WHERE DnB_Principal_ID_Number__c IN :contactPins];
+            
+            if(dupes.size() == 0) insert contacts;
+            
+            if(dupes.size() > 0){
+                Map<String, Contact> removeDupes = new Map<String, Contact>();
+                for(Contact contact : contacts){
+                    removeDupes.put(contact.DnB_Principal_ID_Number__c, contact);
+                }
+                for(Contact contact : dupes){
+                    removeDupes.remove(contact.DnB_Principal_ID_Number__c);
+                }
+                List<Contact> nonDupes = removeDupes.values();
+                if(nonDupes != null) insert nonDupes;
+                
+                for(Contact contact : dupes){
+                    for(Contact contact2 : contacts){
+                        if(contact.DnB_Principal_ID_Number__c == contact2.DnB_Principal_ID_Number__c){
+                            contact.FirstName = contact2.FirstName;
+                            contact.Middle_Name__c = contact2.Middle_Name__c;
+                            contact.LastName = contact2.LastName;
+                            contact.Title = contact2.Title;
+                            contact.AccountId = contact2.AccountId;
+                        }
+                    }
+                }
+                Database.update(dupes);
+            }
+        }
+    }
+    //------------------------------------------------------------------------------\\
+    //------------------------------ MONITORING LAYER ------------------------------\\
+    //------------------------------------------------------------------------------\\
+	/**
+     * calls the methods to be executed when this class is scheduled
+     */
+    public void execute(SchedulableContext sc) {
+        DnB.Monitoring();
+    }
+    /**
+     * updates monitoring and account objects if data is available asynchronously
+     */
+    @future(callout=true)
+    public static void Monitoring(){
+        List<Monitoring__c> monitors = new List<Monitoring__c>();
+        DnB.Layer layer = new DnB.Layer('changenotices','Change Notices',false);
+        Account layerAccount = new Account();
+        
+        List<Account> accounts = [SELECT DBNumber__c FROM Account WHERE DBNumber__c!=NULL];
+        List<Monitoring__c> changes = [SELECT Name FROM Monitoring__c];
+        
+        Map<String,String> changesMap = new Map<String,String>();
+        if(changes!=null){
+            for(Monitoring__c mon : changes){
+                changesMap.put(mon.Name, mon.Id);
+            }
+        }
+        Account catchAll = [SELECT Id FROM Account WHERE Name LIKE 'Test' LIMIT 1];
+
+        layer = DnB.getProduct(layer, layerAccount);
+        String json = layer.Body.toString();
+		
+		Map<String,String> data = new Map<String,String>();
+        data = utils.getValFromJSON(json);
+        
+        Integer quantity = 
+            getInt(data, '.ListChangeNoticeResponse.ListChangeNoticeResponseDetail.CandidateMatchedQuantity');
+        
+        WebService_Log__c webServiceLog = new WebService_Log__c();
+        webServiceLog.WebService__c = 'DnB';
+        webServiceLog.Type__c = 'DnB Monitoring';
+        webServiceLog.Duration_ms__c = layer.duration;
+        webServiceLog.OwnerId = UserInfo.getUserId();
+        webServiceLog.REST_Request__c = layer.request.right(254);
+        webServiceLog.Error__c = layer.error; 
+                
+
+        String pre = '.ListChangeNoticeResponse.ListChangeNoticeResponseDetail.ChangeNoticeDetail$tab$';
+        for (Integer i = 0; i < DnB.getInt(data, + pre + 'Size'); i++) {
+            
+            Datetime timestamp = Datetime.valueOf(DnB.getString(
+                data, + pre + i + '.ChangeEvent.ChangeDetectionTimestamp').replace('T',' '));
+            String changetype = DnB.getString(data, pre + i + '.ChangeEvent.Element$tab$0.@ChangeType');
+            String changefield = DnB.getString(data, pre + i + '.ChangeEvent.ElementName');
+            String oldvalue =  DnB.getString(data, pre + i + '.ChangeEvent.Element$tab$0.@OldValue');
+            if(oldValue != null) oldValue = oldValue.left(254);
+            String newvalue =  DnB.getString(data, pre + i + '.ChangeEvent.Element$tab$0.$');
+            if(newValue != null) newValue = newValue.left(254);
+            String duns =  DnB.getString(data, pre + i + '.SubjectDetail.DUNSNumber');
+            String changeid =  DnB.getString(data, pre + i + '.ChangeEvent.ChangeEventID');
+            
+            String path = 
+                DnB.getString(data, pre + i + '.ChangeEvent.PCMElementXPATHText')
+                .replace('/','.')
+                .replace('..','')
+                .replace('OrderProductResponse.OrderProductResponseDetail.Product.','')
+                .replace('Organization.','');
+            
+            String match = '';
+            
+            if(accounts != null){
+                for(Account account : accounts){
+                    if(account.DBNumber__c == duns) match = account.Id;
+                }
+            }
+            
+            Monitoring__c monitor = new Monitoring__c();
+            if(match != '') monitor.Monitoring_Account__c = match;
+            if(monitor.Monitoring_Account__c == null && catchAll != null) 
+                monitor.Monitoring_Account__c = catchAll.id; 
+            if(timestamp != null) monitor.Monitoring_Timestamp__c = timestamp;
+            if(changetype != null) {
+                if(changetype == 'ValueChanged') changetype = 'Changed';
+                monitor.Monitoring_Change_Type__c = changetype;
+            }
+            if(changefield != null) {
+                monitor.Monitoring_Change_Field__c = changefield;
+                monitor = setMonitoringReasons(monitor, changefield, path);
+            }
+            if(oldvalue != null) monitor.Monitoring_Old_Value__c = oldvalue;   
+            if(newvalue != null) monitor.Monitoring_New_Value__c = newvalue;           
+            if(path != null) monitor.Monitoring_Path__c = path;
+            if(changeid != null) monitor.Name = changeid;
+            if(changesMap != null && monitor.Name != null){
+                if(!changesMap.containsKey(monitor.Name)) {
+                    monitors.add(monitor);
+                }
+            }
+        }
+		//remove dupes that have different change notice ids
+        Map<String, Monitoring__c> removeDupes = new Map<String, Monitoring__c>();
+        for(Monitoring__c monitor : monitors){
+            String uniqueId = '';
+            String changeType = monitor.Monitoring_Change_Type__c;
+            String changeField = monitor.Monitoring_Change_Field__c;
+            String oldValue = monitor.Monitoring_Old_Value__c;
+            String newValue = monitor.Monitoring_New_Value__c;
+            
+            if(changeType != null) uniqueId += changeType;
+            else changeType = '';
+            if(changeField != null) uniqueId += changeField;
+            else changeField = '';
+            if(oldValue != null) uniqueId += oldValue.left(10);
+            else oldValue = '';
+            if(newValue != null) uniqueId += newValue.left(10);
+            else newValue = '';
+            
+            uniqueId = changeType + changeField + oldValue + newValue;
+            removeDupes.put(uniqueId, monitor);
+        }
+        webServiceLog.Success__c = 'Retrieved ' + monitors.size() + ' of ' + quantity + ' possible.';
+        monitors = removeDupes.values();
+        monitors.sort();
+        if(webServiceLog != null) insert webServiceLog;
+                
+        if(monitors != null) {
+            List<Account> accountFields = populateAccMonitoringFields(monitors);
+            
+            if(accounts != null){
+                update accountFields;
+            }
+            insert monitors;
+        }
+    }
+    /**
+     * Translates the monitoring fields into human readable reasons for a particular monitoring event
+     */ 
+    public static Monitoring__c setMonitoringReasons(Monitoring__c monitor, String change, String path){
+        if(change == 'SuitsIndicator') 
+            monitor.Monitoring_Change_Reason__c = 'Lawsuits Indicator';
+        else if(change == 'TotalFilingCount' && path.contains('SuitInformation')) 
+            monitor.Monitoring_Change_Reason__c = 'Number of Lawsuits';
+        else if(change == 'OpenFilingsCount' && path.contains('SuitInformation'))
+            monitor.Monitoring_Change_Reason__c = 'Number of Open Lawsuits';
+        else if(change == 'OpenFilingsAmount' && path.contains('SuitInformation'))
+            monitor.Monitoring_Change_Reason__c = 'Amount of Open Lawsuits';
+        else if(change == 'FilingAmount' && path.contains('SuitInformation'))
+            monitor.Monitoring_Change_Reason__c = 'Lawsuit Filing Amount';
+        else if(change == 'FilingDate' && path.contains('SuitInformation'))
+            monitor.Monitoring_Change_Reason__c = 'Lawsuit Filing Date';
+        
+        else if(change == 'LiensIndicator') 
+            monitor.Monitoring_Change_Reason__c = 'Lien Indicator';
+        else if(change == 'TotalFilingCount' && path.contains('LienInformation')) 
+            monitor.Monitoring_Change_Reason__c = 'Number of Liens';
+        else if(change == 'OpenFilingsCount' && path.contains('LienInformation')) 
+            monitor.Monitoring_Change_Reason__c = 'Number of Open Liens';
+        else if(change == 'OpenFilingsAmount' && path.contains('LienInformation')) 
+            monitor.Monitoring_Change_Reason__c = 'Amount of Open Liens';
+        else if(change == 'FilingAmount' && path.contains('LienInformation'))
+            monitor.Monitoring_Change_Reason__c = 'Lien Filing Amount';
+        else if(change == 'FilingDate' && path.contains('LienInformation')) 
+            monitor.Monitoring_Change_Reason__c = 'Lien Filing Date';
+        
+        else if(change == 'JudgmentIndicator') 
+            monitor.Monitoring_Change_Reason__c = 'Judgment Indicator';
+        else if(change == 'TotalFilingCount' && path.contains('JudgmentInformation')) 
+            monitor.Monitoring_Change_Reason__c = 'Number of Judgments';
+        else if(change == 'OpenFilingsCount' && path.contains('JudgmentInformation')) 
+            monitor.Monitoring_Change_Reason__c = 'Number of Open Judgments';
+        else if(change == 'FilingTypeText' && path.contains('JudgmentInformation')) 
+            monitor.Monitoring_Change_Reason__c = 'Judgment Filing Type';
+        else if(change == 'FilingDate' && path.contains('JudgmentInformation')) 
+            monitor.Monitoring_Change_Reason__c = 'Judgment Filing Date';
+        
+        else if(change == 'BankruptcyIndicator') 
+            monitor.Monitoring_Change_Reason__c = 'Bankruptcy Indicator';
+        else if(change == 'TotalFilingCount' && path.contains('BankruptcyInformation')) 
+            monitor.Monitoring_Change_Reason__c = 'Number of Bankruptcies';
+        else if(change == 'FilingTypeText' && path.contains('BankruptcyInformation')) 
+            monitor.Monitoring_Change_Reason__c = 'Bankruptcy Filing Type';
+        else if(change == 'FilingDate' && path.contains('BankruptcyInformation')) 
+            monitor.Monitoring_Change_Reason__c = 'Bankruptcy Filing Date';
+        else if(change == 'FilingStatusText' && path.contains('BankruptcyInformation')) 
+            monitor.Monitoring_Change_Reason__c = 'Bankruptcy Filing Status';
+        
+        else if(change == 'ClassScore') 
+            monitor.Monitoring_Change_Reason__c = 'CCS Class Score';
+        else if(change == 'RawScore') 
+            monitor.Monitoring_Change_Reason__c = 'CCS Raw Score';
+        else if(change == 'ClassScoreDescription') 
+            monitor.Monitoring_Change_Reason__c = 'CCS Class Score Description';
+        else if(change == 'CommentaryText') 
+            monitor.Monitoring_Change_Reason__c = 'CCS Commentary';
+        else if(change == 'ScoreDate') 
+            monitor.Monitoring_Change_Reason__c = 'CCS Score Date';
+        else if(change == 'NationalPercentile') 
+            monitor.Monitoring_Change_Reason__c = 'CCS National Percentile';
+        else if(change == 'ScoreOverrideReasonText') 
+            monitor.Monitoring_Change_Reason__c = 'CCS Score Override Reason';
+        else if(change == 'RiskIncidencePercentage') 
+            monitor.Monitoring_Change_Reason__c = 'CCS Risk Incidence Percentage';
+        else if(change == 'MedianValue' && path.contains('RiskIncidencePercentageIndustryNorm')) 
+            monitor.Monitoring_Change_Reason__c = 'CCS Risk Incidence Percentage Industry Norm';
+        else if(change == 'PaydexScore' && path.contains('TwelveMonthsPaydex')) 
+            monitor.Monitoring_Change_Reason__c = '12-Month Paydex Score';
+        else if(change == 'TotalPaymentExperiencesUsedCount' && path.contains('TwelveMonthsPaydex')) 
+            monitor.Monitoring_Change_Reason__c = '12-Month Paydex Experience Count';
+        else if(change == 'PaydexScore' && path.contains('ThreeMonthsPaydex')) 
+            monitor.Monitoring_Change_Reason__c = '3-Month Paydex Score';
+        else if(change == 'TotalPaymentExperiencesUsedCount' && path.contains('ThreeMonthsPaydex')) 
+            monitor.Monitoring_Change_Reason__c = '3-Month Paydex Experience Count';
+        
+        else if(change == 'DisasterSpecialEventsIndicator') 
+            monitor.Monitoring_Change_Reason__c = 'Disaster or Special Event Indicator';
+        else if(change == 'EventDate' && path.contains('SpecialEvent')) 
+            monitor.Monitoring_Change_Reason__c = 'Disaster or Special Event Date';
+        else if(change == 'EventDetailText' && path.contains('SpecialEvent')) 
+            monitor.Monitoring_Change_Reason__c = 'Disaster or Special Event Details';
+        
+        else if(change == 'OperatingStatusText') 
+            monitor.Monitoring_Change_Reason__c = 'Out of Business Indicator';
+        else if(change == 'OrganizationEndDate') 
+            monitor.Monitoring_Change_Reason__c = 'Out of Business Date';
+        else if(change == 'ControlOwnershipDate') 
+            monitor.Monitoring_Change_Reason__c = 'Control Year';
+        
+        else monitor.Monitoring_Change_Reason__c = change;        
+        
+        return monitor;
+    }
+    /**
+     * populates Account Monitoring fields from the data found in a monitoring list
+     */
+    public static List<Account> populateAccMonitoringFields(List<Monitoring__c> monitors){
+        List<Id> ids = new List<Id>();
+        for(Monitoring__c monitor : monitors){
+            ids.add(monitor.Monitoring_Account__c);
+        }
+        
+        Map<Id,Account> monitoringAccounts = getMonitoringAccounts(ids);
+
+        for(Monitoring__c monitor : monitors){
+            Account account = monitoringAccounts.get(monitor.Monitoring_Account__c);
+            String change = monitor.Monitoring_Change_Field__c;
+            String newValue = monitor.Monitoring_New_Value__c;
+            String path = monitor.Monitoring_Path__c;
+            
+            if(newValue == null) newValue = '';
+            
+            if(change == 'SuitsIndicator') {
+                if(newValue == 'Active') newValue = 'true';
+                account.DnB_Suits_Indicator__c = Boolean.valueOf(newValue);
+            }
+            
+            if(change == 'TotalFilingCount' && path.contains('SuitInformation')) 
+                account.DnB_Number_of_Suits__c = Decimal.valueOf(newValue);
+            if(change == 'OpenFilingsCount' && path.contains('SuitInformation')) 
+                account.DnB_Number_of_Open_Suits__c = Decimal.valueOf(newValue);
+            if(change == 'OpenFilingsAmount' && path.contains('SuitInformation')) 
+                account.DnB_Amount_of_Open_Suits__c = Decimal.valueOf(newValue);
+            if(change == 'FilingAmount' && path.contains('SuitInformation')) 
+                account.DnB_Suit_Amount__c = Decimal.valueOf(newValue);
+            if(change == 'FilingDate' && path.contains('SuitInformation')) 
+                account.DnB_Suit_Filing_Date__c = Date.valueOf(getDate(newValue));
+            
+            if(change == 'LiensIndicator'){
+                if(newValue == 'Active') newValue = 'true';
+                account.DnB_Lien_Indicator__c = Boolean.valueOf(newValue);
+            }  
+            if(change == 'TotalFilingCount' && path.contains('LienInformation')) 
+                account.DnB_Lien_Count__c = Decimal.valueOf(newValue);
+            if(change == 'OpenFilingsCount' && path.contains('LienInformation')) 
+                account.DnB_Number_of_Open_Liens__c = Decimal.valueOf(newValue);
+            if(change == 'OpenFilingsAmount' && path.contains('LienInformation')) 
+                account.DnB_Amount_of_Open_Liens__c = Decimal.valueOf(newValue);
+            if(change == 'FilingAmount' && path.contains('LienInformation'))
+                account.DnB_Lien_Filing_Amount__c = Decimal.valueOf(newValue);
+            if(change == 'FilingDate' && path.contains('LienInformation')) 
+                account.DnB_Lien_Filing_Date__c = Date.valueOf(getDate(newValue));
+            
+            if(change == 'JudgmentIndicator' && newValue != ''){
+                if(newValue == 'Active') newValue = 'true';
+                account.DnB_Judgments_Indicator__c = Boolean.valueOf(newValue);
+            }  
+            if(change == 'TotalFilingCount' && path.contains('JudgmentInformation')) 
+                account.DnB_Number_of_Judgments__c = Decimal.valueOf(newValue);
+            if(change == 'OpenFilingsCount' && path.contains('JudgmentInformation')) 
+                account.DnB_Number_of_Open_Judgments__c = Decimal.valueOf(newValue);
+            if(change == 'FilingTypeText' && path.contains('JudgmentInformation')) 
+                account.DnB_Judgment_Filing_Type__c = newValue;
+            if(change == 'FilingDate' && path.contains('JudgmentInformation')) 
+                account.DnB_Judgment_Filing_Date__c = Date.valueOf(getDate(newValue));
+            
+            if(change == 'BankruptcyIndicator'){
+                if(newValue == 'Active') newValue = 'true';
+                account.DnB_Bankruptcy_Indicator__c = Boolean.valueOf(newValue);
+            }
+            
+            if(change == 'TotalFilingCount' && path.contains('BankruptcyInformation')) 
+                account.DnB_Bankruptcy_Count__c = Decimal.valueOf(newValue);
+            if(change == 'FilingTypeText' && path.contains('BankruptcyInformation')) 
+                account.DnB_Bankruptcy_Filing_Type__c = newValue;
+            if(change == 'FilingDate' && path.contains('BankruptcyInformation')) 
+                account.DnB_Bankruptcy_Filing_Date__c = Date.valueOf(getDate(newValue));
+            if(change == 'FilingStatusText' && path.contains('BankruptcyInformation')) 
+                account.DnB_Bankruptcy_Release_Status__c = newValue;
+            
+            if(change == 'ClassScore' && newValue != '') 
+                account.CCS_Class_Score__c = Decimal.valueOf(newValue);
+            if(change == 'RawScore' && newValue != '') 
+                account.CCS_Raw_Score__c = Decimal.valueOf(newValue);
+            if(change == 'ClassScoreDescription' && newValue != '')
+                account.CCS_Class_Score_Description__c = newValue;
+            if(change == 'CommentaryText' && newValue != '') 
+                account.DnB_CCS_Commentary_Text__c = newValue;
+            if(change == 'ScoreDate' && newValue != ''){}
+                account.CCS_Score_Date__c = Date.valueOf(getDate(newValue));
+            if(change == 'NationalPercentile' && newValue != '') 
+                account.DnB_CCS_National_Percentage__c = Decimal.valueOf(newValue);
+            if(change == 'ScoreOverrideReasonText' && newValue != '') 
+                account.DnB_CCS_Override_Reason_Text__c = newValue;
+            if(change == 'RiskIncidencePercentage' && newValue != '') 
+                account.DnB_CCS_Risk_Incidence_Percentage__c = Decimal.valueOf(newValue);
+            if(change == 'MedianValue' && path.contains('RiskIncidencePercentageIndustryNorm') && newValue != '') 
+                account.DnB_CCS_Risk_Incidence_Industry_Mean__c = Decimal.valueOf(newValue);
+            if(change == 'PaydexScore' && path.contains('TwelveMonthsPaydex')) 
+                account.DnB_Paydex_Score_12_Months__c = newValue;
+            if(change == 'TotalPaymentExperiencesUsedCount' && path.contains('TwelveMonthsPaydex') && newValue != '') 
+                account.DnB_Trade_XP_Count_12_Months__c = Decimal.valueOf(newValue);
+            if(change == 'PaydexScore' && path.contains('ThreeMonthsPaydex') && newValue != '') 
+                account.DnB_Paydex_Score_3_Months__c = newValue;
+            if(change == 'TotalPaymentExperiencesUsedCount' && path.contains('ThreeMonthsPaydex') && newValue != '') 
+                account.DnB_Trade_XP_Count_3_Months__c = Decimal.valueOf(newValue);
+            
+            if(change == 'DisasterSpecialEventsIndicator' && newValue != ''){
+                if(newValue == 'Active') newValue = 'true';
+                account.DnB_Disaster_Special_Events_Indicator__c = Boolean.valueOf(newValue);
+            }
+            
+            if(change == 'EventDate' && path.contains('SpecialEvent') && newValue != '') 
+                account.DnB_Special_Event_Date__c = Date.valueOf(getDate(newValue));
+            if(change == 'EventDetailText' && path.contains('SpecialEvent') && newValue != '') 
+                account.DnB_Special_Event_Detail_Text__c = newValue;
+            
+            if(change == 'OperatingStatusText' && newValue != '') {
+                if(newValue == 'Active') newValue = 'false';
+                account.DnB_Out_of_Business_Indicator__c = Boolean.valueOf(newValue);
+            }
+            
+            if(change == 'OrganizationEndDate' && newValue != '') 
+                account.DnB_Out_of_Business_Date__c = Date.valueOf(getDate(newValue));
+            if(change == 'ControlOwnershipDate' && newValue != '') 
+                account.DnB_Control_Year__c = newValue;
+            
+            monitoringAccounts.put(monitor.Monitoring_Account__c, account);
+        }
+        return monitoringAccounts.values();
+    }
+    /**
+     * a single bulkified query of all monitoring fields from account ids passed
+     */ 
+    @TestVisible
+    private static Map<Id,Account> getMonitoringAccounts(List<Id> ids){
+        return new Map<Id,Account>([SELECT Id, DnB_Suits_Indicator__c, DnB_Number_of_Suits__c,
+                                    DnB_Number_of_Open_Suits__c,DnB_Amount_of_Open_Suits__c, 
+                                    DnB_Suit_Amount__c,DnB_Suit_Filing_Date__c,
+                                    DnB_Lien_Indicator__c, DnB_Lien_Count__c,
+                                    DnB_Number_of_Open_Liens__c, DnB_Amount_of_Open_Liens__c, 
+                                    DnB_Lien_Filing_Amount__c,DnB_Lien_Filing_Date__c,
+                                    DnB_Judgments_Indicator__c, DnB_Number_of_Judgments__c,
+                                    DnB_Number_of_Open_Judgments__c, DnB_Judgment_Filing_Type__c,
+                                    DnB_Judgment_Filing_Date__c,
+                                    DnB_Bankruptcy_Indicator__c, DnB_Bankruptcy_Count__c, 
+                                    DnB_Bankruptcy_Filing_Type__c,DnB_Bankruptcy_Filing_Date__c, 
+                                    DnB_Bankruptcy_Release_Status__c,CCS_Class_Score__c,
+                                    CCS_Raw_Score__c, CCS_Class_Score_Description__c, 
+                                    DnB_CCS_Commentary_Text__c,CCS_Score_Date__c, 
+                                    DnB_CCS_National_Percentage__c, DnB_CCS_Override_Reason_Text__c,
+                                    DnB_CCS_Risk_Incidence_Percentage__c, 
+                                    DnB_CCS_Risk_Incidence_Industry_Mean__c,DnB_Paydex_Score_12_Months__c, 
+                                    DnB_Trade_XP_Count_12_Months__c,DnB_Paydex_Score_3_Months__c, 
+                                    DnB_Trade_XP_Count_3_Months__c,DnB_Disaster_Special_Events_Indicator__c, 
+                                    DnB_Special_Event_Date__c,DnB_Special_Event_Detail_Text__c,
+                                    DnB_Out_of_Business_Indicator__c,DnB_Out_of_Business_Date__c,
+                                    DnB_Control_Year__c
+                                    FROM Account WHERE Id IN :ids]);
+    }
+    //------------------------------------------------------------------------------\\
+    //-------------------------------- CONTACT LAYER -------------------------------\\
+    //------------------------------------------------------------------------------\\
+    /**
+     * gets the initial list of contacts from the find contact layer
+     */
+    public void getDnBContacts(){
+        contactList = new List<ContactWrapper>();
+        selectedContacts = new List<String>();
+        contactsToDisplay = new List<Contact>();
+        webServiceLogs = new List<WebService_Log__c>();
+        
+        List<Contact> contacts = new List<Contact>();
+        Layer layer = new DnB.Layer('findcontact','Find Contact',false);
+        Id pageId = ApexPages.currentPage().getParameters().get('accid');
+        WebService_Log__c webServiceLog = new WebService_Log__c();
+        layer = DnB.getProduct(layer,acc);
+        
+        webServiceLog.Duration_ms__c = layer.duration;
+        webServiceLog.Error__c = layer.error;
+        webServiceLog.REST_Request__c = layer.request;
+        webServiceLog.WebService__c = 'DnB';
+        webServiceLog.Type__c = 'Find Contact';
+        webServiceLog.Account__c = acc.id;
+        
+        try{
+            Map<String,String> data = utils.getValFromJSON(layer.Body.toString());
+            String pre = '.FindContactResponse.FindContactResponseDetail.FindCandidate$tab$';
+            for(Integer i = 0; i < DnB.getInt(data, pre + 'Size'); i++){
+                Contact contact = new Contact();
+                String firstname = DnB.getString(data, pre + i + '.ContactName.FirstName');
+                String lastname = DnB.getString(data, pre + i + '.ContactName.LastName');
+                String title = DnB.getString(data, pre + i + '.JobTitle$tab$0.JobTitleText.$');
+                String principalid = DnB.getString(
+                    data, pre + i 
+                    + '.PrincipalIdentificationNumberDetail$tab$0.PrincipalIdentificationNumber');
+                Boolean hasPhone = false;
+                hasPhone = DnB.getBool(data, pre + i + '.DirectTelephoneInformationAvailableIndicator');
+                Boolean hasEmail = false;
+                hasEmail = DnB.getBool(data, pre + i + '.DirectEmailInformationAvailableIndicator');
+                contact.Account = acc;
+                if(firstname!=null) contact.FirstName = firstname;
+                if(lastname!=null) contact.LastName = lastname;
+                if(title!=null) contact.Title = title;
+                if(principalid!=null) contact.DnB_Principal_ID_Number__c = principalid;
+                if(hasPhone) contact.DnB_Contacts_Phone_Available__c = 'Available';
+                else contact.DnB_Contacts_Phone_Available__c = 'Not Available';
+                if(hasEmail) contact.DnB_Contacts_Email_Available__c = 'Available';
+                else contact.DnB_Contacts_Email_Available__c = 'Not Available';
+                contacts.add(contact);
+            }
+            webServiceLog.success__c = 'Found ' + String.valueOf(contacts.size()) + ' contact(s).';
+            if(Test.isRunningTest()) throw new TestException('test');
+        }catch(Exception ex){
+            ApexPages.addmessage(new ApexPages.message(ApexPages.severity.ERROR, layer.error));
+        }
+        insert webServiceLog;
+        hasContactList = false;
+        if(contacts != null){
+            for(Contact contact : contacts){
+                hasContactList = true;
+                contactList.add(new ContactWrapper(contact));
+            }
+        }                
+    }
+    /**
+     * inserts or updates the contacts selected on the page
+     */ 
+    public PageReference insertSelectedContacts(){
+        selectedContacts.clear();
+        contactsToDisplay.clear();
+        hasSelectedContacts = false;
+
+        for(ContactWrapper contactWrapper : contactList){
+            if(contactWrapper.isSelected || Test.isRunningTest()){
+                hasSelectedContacts = true;
+                selectedContacts.add(contactWrapper.contact.DnB_Principal_ID_Number__c);
+            }
+        }
+        if(selectedContacts != null){
+            contactstoDisplay = getSelectedContactData();
+            if(contactstoDisplay != null){
+                List<Contact> dupes = [SELECT Id, Name, FirstName, LastName, Phone, MailingStreet,
+                                       MailingCity, MailingCountry, MailingState, MailingPostalCode,
+                                       DnB_Principal_ID_Number__c, Email
+                                       FROM Contact
+                                       WHERE DnB_Principal_ID_Number__c IN :selectedContacts];
+                List<Contact> nonDupes = new List<Contact>();      
+                if(dupes.size() == 0) insert contactsToDisplay;
+                
+                if(dupes.size() > 0){
+                    Map<String,Contact> removeDupes = new Map<String,Contact>();
+                    for(Contact contact : contactsToDisplay){
+                        removeDupes.put(contact.DnB_Principal_ID_Number__c, contact);
+                    }
+                    for(Contact contact : dupes){
+                        removeDupes.remove(contact.DnB_Principal_ID_Number__c);
+                    }
+                    nonDupes = removeDupes.values();
+                    if(nonDupes != null){
+                        insert nonDupes;
+                    }
+                    
+                    for(Contact contact : dupes){
+                        if(contact.DnB_Principal_ID_Number__c != null || contact.DnB_Principal_ID_Number__c != ''){
+                            for(Contact contact2 : contactsToDisplay){
+                                if(contact.DnB_Principal_ID_Number__c == contact2.DnB_Principal_ID_Number__c){
+                                    contact.FirstName = contact2.FirstName;
+                                    contact.LastName = contact2.LastName;
+                                    contact.Title = contact2.Title;
+                                    contact.Phone = contact2.Phone;
+                                    contact.Email = contact2.Email;
+                                    contact.MailingStreet = contact2.MailingStreet;
+                                    contact.MailingCity = contact2.MailingCity;
+                                    contact.MailingCountry = contact2.MailingCountry;
+                                    contact.MailingState = contact2.MailingState;
+                                    contact.MailingPostalCode = contact2.MailingPostalCode;
+                                    contact.AccountId = contact2.AccountId;
+                                }
+                            }
+                        }
+                    }
+                    try{
+                        if(dupes !=null) Database.update(dupes);
+                        if(Test.isRunningTest()) throw new TestException('test');
+                    } catch(Exception ex){}
+                }
+                for(WebService_Log__c webServiceLog : webServiceLogs){
+                    for(Contact contact : contactsToDisplay){
+                        if(webServiceLog.REST_Request__c.contains(contact.DnB_Principal_ID_Number__c)){
+                            webServiceLog.Contact__c = contact.id;
+                        }
+                    }
+                    for(Contact contact : dupes){
+                        if(webServiceLog.REST_Request__c.contains(contact.DnB_Principal_ID_Number__c)){
+                            webServiceLog.Contact__c = contact.id;
+                        }
+                    }
+                    if(Test.isRunningTest()) nonDupes = dupes.clone();
+                    for(Contact contact : nonDupes){
+                        if(webServiceLog.REST_Request__c.contains(contact.DnB_Principal_ID_Number__c)){
+                            webServiceLog.Contact__c = contact.id;
+                        }
+                    }
+                }
+                insert webServiceLogs;                
+            }
+        }
+        return new PageReference('/' + acc.id);
+    }
+    /**
+     * sets the contacts to display
+     */ 
+    @TestVisible
+    private List<Contact> getSelectedContactData(){
+        List<Contact> contacts = new List<Contact>();
+        String pre = '.OrderProductResponse.OrderProductResponseDetail.Product.Organization.';
+        Layer layer = new DnB.Layer('cntct','cntct',false);
+        for(String selectedContact : selectedContacts){
+            Contact contact = new Contact();
+            layer = DnB.getProduct(layer, acc, selectedContact);
+            data = utils.getValFromJSON(layer.Body.toString());
+            
+            contact.FirstName = getString(data, pre 
+                                          + 'PrincipalsAndManagement.CurrentPrincipal$tab$0.PrincipalName.FirstName');
+            contact.LastName = getString(data, pre 
+                                         + 'PrincipalsAndManagement.CurrentPrincipal$tab$0.PrincipalName.LastName');
+            contact.Title = getString(data, pre
+                                      + 'PrincipalsAndManagement.CurrentPrincipal$tab$0.JobTitle$tab$0.JobTitleText'
+                                      + '.$');
+            contact.Phone =
+                '+' + getString(data, pre
+                                + 'Telecommunication.TelephoneNumber$tab$0.InternationalDialingCode')
+                + ' ' + getString(data, pre
+                                  + 'Telecommunication.TelephoneNumber$tab$0.TelecommunicationNumber');
+            contact.MailingStreet = getString(data, pre
+                                              + 'Location.PrimaryAddress$tab$0.StreetAddressLine$tab$0.LineText');
+            contact.MailingCity = getString(data, pre
+                                            + 'Location.PrimaryAddress$tab$0.PrimaryTownName');
+            contact.MailingCountry = getString(data, pre
+                                               + 'Location.PrimaryAddress$tab$0.CountryISOAlpha2Code');
+            contact.MailingState = getString(data, pre
+                                             + 'Location.PrimaryAddress$tab$0.TerritoryAbbreviatedName');
+            contact.MailingPostalCode = getString(data, pre
+                                                  + 'Location.PrimaryAddress$tab$0.PostalCode');
+            contact.DnB_Principal_ID_Number__c = selectedContact;
+            contact.Email = getString(data, pre
+                                      + 'PrincipalsAndManagement.CurrentPrincipal$tab$0.Telecommunication'
+                                      + '.EmailAddress$tab$0.TelecommunicationAddress');
+            contact.AccountId = acc.Id;
+            
+            WebService_Log__c webServiceLog = new WebService_Log__c();
+            webServiceLog.OwnerId = UserInfo.getUserId();
+            webServiceLog.WebService__c = 'DnB';
+            webServiceLog.Type__c = 'People - Standard';
+            webServiceLog.Error__c = layer.error;
+            webServiceLog.Success__c = 'Retrieved ' + contact.FirstName + ' ' + contact.LastName + '.';
+            webServiceLog.REST_Request__c = layer.request;
+            webServiceLog.Account__c = acc.Id;
+            webServiceLog.Duration_ms__c = layer.duration;
+            
+            if(webServiceLogs != null) webServiceLogs.add(webServiceLog);
+            contacts.add(contact);
+        }
+        return contacts;
+    }
+}
