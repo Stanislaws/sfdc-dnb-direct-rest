@@ -1,0 +1,243 @@
+<apex:page docType="html-5.0" standardcontroller="Account" extensions="DnB" id="DnB">
+    <apex:stylesheet value="{!URLFOR($Resource.tablesortermaster, 
+                            '/tablesorter-master/css/jquery.theme.default.css')}"/>
+    <apex:stylesheet value="{!URLFOR($Resource.tablesortermaster, 
+                            '/tablesorter-master/css/jquery.filter.formatter.css')}"/>
+    <apex:includeScript value="{!$Resource.jquery}"/>
+    <apex:includeScript value="{!URLFOR($Resource.tablesortermaster, 
+                               '/tablesorter-master/js/jquery.tablesorter.combined.js')}"/>
+    <apex:includeScript value="{!$Resource.tablesorterdnb}" />
+    <apex:includeScript value="{!$Resource.selectAllCheckboxes}" />
+    <style>
+        .tablesorter .filtered {
+        	display: none;
+        }     
+    </style>
+    <apex:pageMessages id="errorMessage" escape="false"/>
+    <apex:pageBlock title="DnB" id="DnBSub">
+        <apex:form rendered="{!sType=='Search'}" id="search">     
+            <apex:pageBlockSection title="A search has already been performed for this customer : {!acc.Name} ({!acc.DBNumber__c})" rendered="{!acc.DnB_Searched__c}"/>               
+            <apex:pageBlockSection title="Search Criterias" rendered="{!!acc.DnB_Searched__c}" id="search">
+                <apex:inputText label="DnB Id" value="{!companySearch.duns}"/>
+                <apex:inputText label="Company Name/Individual*" value="{!companySearch.name}"/>
+                <apex:inputText label="Address" value="{!companySearch.address}"/>
+                <apex:inputText label="Phone" value="{!companySearch.phone}"/>
+                <apex:inputText label="City" value="{!companySearch.city}"/>
+                <apex:selectList label="State*" value="{!companySearch.state}" size="1" id="statesNew">    
+                    <apex:selectOptions value="{!lStates}"/>
+                </apex:selectList> 
+                <apex:selectList label="Country*" value="{!companySearch.country}" size="1">
+                    <apex:actionSupport event="onchange"  action="{!getStates}" reRender="search"/>            
+                    <apex:selectOptions value="{!lCountries}"/>
+                </apex:selectList>           
+            </apex:pageBlockSection>
+            <table width="100%"><tr><td align="center">
+                <apex:actionStatus id="mySearchStatus">
+                    <apex:facet name="stop">
+                        <apex:commandButton value="Search" rendered="{!!acc.DnB_Searched__c}" action="{!searchCompany}" rerender="searchResults,errorMessage"  status="mySearchStatus" id="SearchButton"/>
+                    </apex:facet>
+                    <apex:facet name="start">
+                        <apex:outputPanel >
+                            <apex:image value="/img/loading32.gif" style="height: 15px;"/>
+                            <apex:commandButton value="Retrieving Data..." status="mySearchStatus" disabled="true"/>
+                        </apex:outputPanel>
+                    </apex:facet>
+                </apex:actionStatus>
+                <apex:commandButton value="Cancel" action="{!cancel}"/>
+                </td></tr></table>
+        </apex:form>    
+        <apex:form rendered="{!sType=='NewAcc'}" id="newAccount">     
+            <apex:pageBlockSection title="Search Criterias" rendered="{!!acc.DnB_Searched__c}" id="newAcc">
+                <apex:input label="Company Name*" value="{!companySearch.name}"/>
+                <apex:input label="Address" value="{!companySearch.address}"/>
+                <apex:input label="City" value="{!companySearch.city}"/>
+                <apex:selectList label="State*" value="{!companySearch.state}" size="1" id="statesNew">    
+                    <apex:selectOptions value="{!lStates}"/>
+                </apex:selectList> 
+                <apex:input label="Zip" value="{!companySearch.zip}"/>
+                <apex:selectList label="Country*" value="{!companySearch.country}" size="1">
+                    <apex:actionSupport event="onchange"  action="{!getStates}" reRender="newAcc"/>            
+                    <apex:selectOptions value="{!lCountries}"/>
+                </apex:selectList> 
+                <apex:input label="Phone" value="{!companySearch.phone}"/> 
+                <apex:input label="DnB Id" value="{!companySearch.duns}"/>          
+            </apex:pageBlockSection>
+            <table width="100%"><tr><td align="center">
+                <apex:actionStatus id="mySearchStatusNew">
+                    <apex:facet name="stop">
+                        <apex:commandButton value="Search" action="{!searchCompany}" status="mySearchStatusNew" id="SearchButtonNew" rerender="searchResults,errorMessage"/>
+                    </apex:facet>
+                    <apex:facet name="start">
+                        <apex:outputPanel >
+                            <apex:image value="/img/loading32.gif" style="height: 15px;"/>
+                            <apex:commandButton value="Retrieving Data..." status="mySearchStatusNew" disabled="true"/>
+                        </apex:outputPanel>
+                    </apex:facet>
+                </apex:actionStatus>
+                <apex:commandButton value="Cancel" action="{!cancel}"/>
+                </td></tr></table>
+        </apex:form>
+        <apex:form id="searchResults">
+            <apex:pageBlockSection title="Search Results ({!sSearchResults})"  columns="1" id="searchResults" rendered="{!(sType=='Search' && !acc.DnB_Searched__c) || sType=='NewAcc'}">
+                <table width="100%"><tr><td align="center">
+                    <apex:commandButton value="Customer Not Found" action="{!noSelection}" rendered="{!lCompanies!=null && sType=='NewAcc'}" id="notFound"/>
+                    </td></tr></table>
+                <apex:pageBlockTable value="{!lCompanies}" var="item">  
+                    <apex:column headerValue="Duns">
+                        <apex:commandLink action="{!selectCompany}" value="{!item.duns}">                        
+                            <apex:param assignTo="{!dunsSelected}" name="dunsSelected" value="{!item.duns}"/>   
+                        </apex:commandLink>         
+                    </apex:column>
+                    <apex:column headerValue="Duns" value="{!item.duns}" rendered="{!sType=='Affil'}"/>              
+                    <apex:column headerValue="Name" value="{!item.Name}"/>       
+                    <apex:column headerValue="Street" value="{!item.address}"/>   
+                    <apex:column headerValue="City" value="{!item.City}"/>          
+                    <apex:column headerValue="State" value="{!item.State}"/>      
+                    <apex:column headerValue="Phone" value="{!item.Phone}"/>              
+                    <apex:column headerValue="Location Type" value="{!item.locationType}"/>
+                    <apex:column headerValue="Confidence" value="{!item.confidence}"/>  
+                </apex:pageBlockTable>
+            </apex:pageBlockSection>
+        </apex:form>
+        <apex:form rendered="{!sType=='GetLayers'}" id="getLayers">            
+            <apex:pageBlockSection title="Select the Layers to retrieve for {!acc.Name} ({!acc.DBNumber__c})" columns="1" >
+                <apex:pageBlockTable value="{!layers}" var="item">      
+                    <apex:column > 
+                        <apex:inputCheckbox value="{!item.isChecked}"/>         
+                    </apex:column>    
+                    <apex:column headerValue="Layer" value="{!item.label}"/>
+                </apex:pageBlockTable>
+            </apex:pageBlockSection>  
+            <table width="100%"><tr><td align="center">
+                <apex:actionStatus id="mySaveStatus1">
+                    <apex:facet name="stop">
+                        <apex:commandButton value="Get Data" action="{!getLayers}" status="mySaveStatus1"/>
+                    </apex:facet>
+                    <apex:facet name="start">
+                        <apex:outputPanel >
+                            <apex:image value="/img/loading32.gif" style="height: 15px;"/>
+                            <apex:commandButton value="Retrieving Data..." status="mySaveStatus1" disabled="true"/>
+                        </apex:outputPanel>
+                    </apex:facet>
+                </apex:actionStatus>
+                <apex:commandButton value="Cancel" action="{!cancel}"/>
+                </td></tr></table>
+        </apex:form>
+        <apex:form rendered="{!sType=='Affil'}" id="AffResults">
+            <apex:pageBlockSection title="Search affiliates for {!acc.Name} ({!acc.DBNumber__c})">            
+            </apex:pageBlockSection>  
+            <table width="100%"><tr><td align="center">
+                <apex:actionStatus id="mySearchStatus">
+                    <apex:facet name="stop">
+                        <apex:commandButton value="Search For Affiliates" action="{!getAffilates}" rerender="AffResult,impButton,SearchAffButton"  status="mySearchStatus" id="SearchAffButton"  disabled="{!lCompanies.size>0}"/>
+                    </apex:facet>
+                    <apex:facet name="start">
+                        <apex:outputPanel >
+                            <apex:image value="/img/loading32.gif" style="height: 15px;"/>
+                            <apex:commandButton value="Retrieving Data..." status="mySearchStatus" disabled="true"/>
+                        </apex:outputPanel>
+                    </apex:facet>
+                </apex:actionStatus>            
+                <apex:actionStatus id="mySaveStatus1">
+                    <apex:facet name="stop">
+                        <apex:commandButton value="Import Selected Affiliates" action="{!impAff}" status="mySaveStatus1" disabled="{!lCompanies.size=0}" id="impButton"/>
+                    </apex:facet>
+                    <apex:facet name="start">
+                        <apex:outputPanel >
+                            <apex:image value="/img/loading32.gif" style="height: 15px;"/>
+                            <apex:commandButton value="Importing Data..." status="mySaveStatus1" disabled="true"/>
+                        </apex:outputPanel>
+                    </apex:facet>            
+                </apex:actionStatus>
+                <apex:commandButton value="Cancel" action="{!cancel}"/>
+                </td></tr></table>
+            <apex:pageBlockSection title="Affiliates ({!sSearchResults})" columns="1" id="AffResult">
+                <apex:pageBlockTable value="{!lCompanies}" var="item">  
+                    <apex:column headerValue="Duns" rendered="{!sType=='Search'}">
+                        <apex:commandLink action="{!selectCompany}" value="{!item.duns}">                        
+                            <apex:param assignTo="{!dunsSelected}" name="dunsSelected" value="{!item.duns}"/>   
+                        </apex:commandLink>         
+                    </apex:column>
+                    <apex:column headerValue="">
+                        <apex:inputCheckbox value="{!item.isChecked}"/>
+                    </apex:column> 
+                    <apex:column headerValue="Duns" value="{!item.duns}" rendered="{!sType=='Affil'}"/>
+                    <apex:column headerValue="Name">       
+                        <apex:outputText escape="false" value="{!item.displayName}"/>       
+                    </apex:column>
+                    <apex:column headerValue="Street" value="{!item.address}"/>       
+                    <apex:column headerValue="State" value="{!item.State}"/>         
+                    <apex:column headerValue="Location Type" value="{!item.locationType}"/>
+                    <apex:column headerValue="Parent" value="{!item.parent}"/>
+                </apex:pageBlockTable>
+            </apex:pageBlockSection>
+        </apex:form>
+        <apex:form rendered="{!sType=='Contacts'}" id="contactForm">
+            <apex:pageBlock title="DnB Contacts" id="contactBlock">
+                <apex:pageBlockButtons id="contactButtons">
+                    <apex:commandButton value="Get Contact List"
+                                        action="{!getDnBContacts}"
+                                        rendered="{!hasContactList=false}"
+                                        title="Get the contact list" />
+                    <apex:commandButton value="Save"
+                                        action="{!insertSelectedContacts}"
+                                        rendered="{!hasContactList}"
+                                        title="Save the selected contacts" />
+                    <apex:commandButton value="Cancel" action="{!cancel}"
+                                        title="Return to the account"/> 
+                </apex:pageBlockButtons>
+                
+                <apex:pageBlockSection >
+                    <apex:input styleClass="search selectable" type="search"
+                                html-placeholder="Search"
+                                html-data-column="all"
+                                title="Search for a contact in the list below"
+                                rendered="{!hasContactList}"/>
+                </apex:pageBlockSection>
+                <apex:pageBlockTable value="{!contactList}" var="cl" rendered="{!hasContactList}" id="contactTable">
+                    <apex:column >  
+                        <apex:facet name="header"> 
+                            <apex:inputCheckbox onclick="selectAllCheckboxes(this,'inputId')" title="Select All"/>
+                        </apex:facet>
+                        <apex:inputCheckBox value="{!cl.isSelected}" id="inputId" title="Add {!cl.contact.FirstName} {!cl.contact.LastName}" />
+                    </apex:column>
+                    <apex:column headerValue="Principal Id" html-data-column="1">
+                        {!cl.contact.DnB_Principal_ID_Number__c}
+                    </apex:column>
+                    <apex:column value="{!cl.contact.FirstName}" html-data-column="2" />
+                    <apex:column value="{!cl.contact.LastName}" html-data-column="3" />
+                    <apex:column value="{!cl.contact.Title}" html-data-column="4" />
+                    <apex:column headerValue="Phone"
+                                 value="{!cl.contact.DnB_Contacts_Phone_Available__c}"/>
+                    <apex:column headerValue="Email"
+                                 value="{!cl.contact.DnB_Contacts_Email_Available__c}"/>
+                </apex:pageBlockTable>     
+            </apex:pageBlock>
+        </apex:form>
+        <apex:form rendered="{!sType=='Monitoring'}" id="monitoring">
+            <apex:pageBlock title="DnB Monitoring">
+            	<apex:pageBlockButtons >
+                	<apex:commandButton value="Register"
+                                        title="Register the selected contacts for DnB Monitoring" />
+                    <apex:commandButton value="Cancel"
+                                        title="Cancel and return to the account" />
+                </apex:pageBlockButtons>
+                <apex:pageBlockTable value="{!null}" var="mon" id="contacts">
+                    <apex:column >
+                        <apex:facet name="header">
+                            <apex:inputCheckbox onclick="selectAllCheckboxes(this,'inputId')" title="Select All"/>
+                        </apex:facet>
+                        <apex:inputCheckbox />
+                    </apex:column>
+                    <apex:column headerValue="Account Name" />
+                    <apex:column headerValue="Active Contracts" />
+                    <apex:column headerValue="# Remaining Months" />
+                    <apex:column headerValue="Credit Approvals" />
+                    <apex:column headerValue="Credit Exp Date" />
+                    <apex:column headerValue="Customer Exposure" />
+                    <apex:column headerValue="Monitoring Exp Date" />
+                </apex:pageBlockTable>
+            </apex:pageBlock>
+        </apex:form>
+    </apex:PageBlock>
+</apex:page>
