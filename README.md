@@ -11,4 +11,4 @@ This program is free software: you can redistribute it and/or modify
 
     You should have received a copy of the GNU General Public License
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
-Requires a Salesforce instance capable of Apex code, a contract with D&B (http://dnb.com/). VF page requires tablesorter (https://github.com/christianbach/tablesorter) and JQuery v1.x.x (https://jquery.com/).
+Requires a Salesforce instance capable of Apex code, a contract with D&B (http://dnb.com/). VF page requires tablesorter (https://github.com/christianbach/tablesorter) and JQuery v1.x.x (https://jquery.com/). Declaritive options are not include in this repository. 
