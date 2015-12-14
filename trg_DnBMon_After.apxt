@@ -1,0 +1,31 @@
+/**
+ * Filters DnB Monitoring events for specific conditions and triggers the approval process
+ */ 
+trigger trg_DnBMon_After on Monitoring__c (after insert) {
+    List<Monitoring__c> monitors = new List<Monitoring__c>();
+    for(Monitoring__c monitor : trigger.new){
+        String field = monitor.Monitoring_Change_Field__c;
+        String value = monitor.Monitoring_New_Value__c;
+        String oldValue = monitor.Monitoring_Old_Value__c;
+        String path = monitor.Monitoring_Path__c;
+        if(field == 'OpenFilingsAmount' && Integer.valueOf(value) > 10000 && (path.contains('JudgmentInformation') || path.contains('LienInformation')|| path.contains('SuitInformation'))) monitors.add(monitor);
+        if(field == 'DisasterSpecialEventsIndicator' && value == 'Active')  monitors.add(monitor);
+        if(field == 'BankruptcyIndicator' && value == 'Active') monitors.add(monitor);
+        if(field == 'ControlOwnershipDate' && value == null) monitors.add(monitor);
+        if(field == 'OrganizationEndDate' && value != null) monitors.add(monitor);
+        if(field == 'PaydexScore' && path.contains('TwelveMonthsPaydex') && Decimal.valueOf(value) < 60) monitors.add(monitor);
+        if(field == 'ClassScore' && (Decimal.valueOf(oldValue) - Decimal.valueOf(value) >= 5)) monitors.add(monitor);
+        if(field == 'PaydexScore' && path.contains('TwelveMonthsPaydex')  && (Math.abs(Decimal.valueOf(value) - Decimal.valueOf(oldValue)))  / (Math.abs(Decimal.valueOf(oldValue) * 100)) >= 10  && Decimal.valueOf(value) < Decimal.valueOf(oldValue)) monitors.add(monitor);
+        if(field == 'RawScore' && (Math.abs(Decimal.valueOf(value) - Decimal.valueOf(oldValue))) / (Math.abs(Decimal.valueOf(oldValue) * 100)) >= 10 && Decimal.valueOf(value) < Decimal.valueOf(oldValue)) monitors.add(monitor);
+        
+    }
+    
+    if(monitors.size() > 0){
+        for(Monitoring__c monitor : monitors){
+            Approval.ProcessSubmitRequest request = new Approval.ProcessSubmitRequest();
+            request.setComments('Automatically triggered by filter');
+            request.setObjectId(monitor.id);
+            Approval.process(request);
+        }
+    }
+}
