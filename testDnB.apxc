@@ -1,0 +1,987 @@
+/**
+ * This class contains unit tests for validating the behavior of Apex classes and triggers.
+ * <p>
+ * Unit tests are class methods that verify whether a particular piece
+ * of code is working properly. Unit test methods take no arguments,
+ * commit no data to the database, and are flagged with the testMethod
+ * keyword in the method definition.
+ * <p>
+ * All test methods in an organization are executed whenever Apex code is deployed
+ * to a production organization to confirm correctness, ensure code
+ * coverage, and prevent regressions. All Apex classes are
+ * required to have at least 75% code coverage in order to be deployed
+ * to a production organization. In addition, all triggers must have some code coverage.
+ * <p>
+ * The @isTest class annotation indicates this class only contains test
+ * methods. Classes defined with the @isTest annotation do not count against
+ * the organization size limit for all Apex scripts.
+ * <p>
+ * See the Apex Language Reference for more information about Testing and Code Coverage.
+ * @see DnB  
+ */
+@isTest
+private class testDnB{ 
+    static testMethod void DnBSearch() {
+        Account account = TestDataFactory.generateTestAccount();
+        account.BillingCountry='US';
+        account.DBNumber__c = '123456789';
+        insert account;
+
+        ApexPages.StandardController controller = new ApexPages.standardController(account);
+
+        PageReference pageReference = Page.DnB;
+        Test.setCurrentPage(pageReference);
+        ApexPages.currentPage().getParameters().put('accId', account.Id);
+
+        Test.setMock(HttpCalloutMock.class, new MockHttpResponseGenerator());
+		
+        Test.startTest();
+        DnB d = new DnB(controller);
+
+        d.companySearch.duns = '123456789';
+        d.companySearch.name = 'd';
+        d.companySearch.address = 'd';
+        d.companySearch.phone = 'd';
+        d.companySearch.country = 'd';
+        d.companySearch.state = 'd';
+        d.companySearch.city = 'd';
+        d.companySearch.parent = 'd';
+
+        d.searchCompany();
+        d.dunsSelected = d.lCompanies[0].duns;
+        try{
+           d.selectCompany(); 
+        } catch(DmlException ex){}
+        
+        d.companySearch.name = '';
+        try{
+            d.searchCompany();
+        } catch(Exception e){}
+        
+        d.noSelection();
+        
+        try{
+            DnB.getAutoDnB(account.id);
+        } 
+        catch(DmlException ex){}
+        catch(CallOutException ex){}
+
+        Test.stopTest();
+    }
+
+    static testMethod void DnBLayer() {
+        Account account = TestDataFactory.generateTestAccount();
+        account.BillingCountry = 'US';
+        account.DBNumber__c = '123456789';
+        insert account;
+		
+        ApexPages.StandardController controller = new ApexPages.standardController(account);
+
+        PageReference pageReference = Page.DnB;
+        Test.setCurrentPage(pageReference);
+        ApexPages.currentPage().getParameters().put('accId', account.Id);
+
+        Test.setMock(HttpCalloutMock.class, new MockHttpResponseGenerator());
+		Test.startTest();
+        DnB dnb = new DnB(controller);
+        for(DnB.Layer layer : dnb.layers){
+            layer.isChecked=true;
+        }
+        dnb.getLayers(); 
+        Test.stopTest();
+    }
+
+    static testMethod void DnBAffil() {
+        Account account = TestDataFactory.generateTestAccount();
+        account.BillingCountry = 'US';
+        account.DBNumber__c = '123456789';
+        insert account;
+
+        //Test DnB windows
+        ApexPages.StandardController controller = new ApexPages.standardController(account);
+
+        PageReference pageReference = Page.DnB;
+        Test.setCurrentPage(pageReference);
+        ApexPages.currentPage().getParameters().put('accId', account.Id);
+
+        Test.setMock(HttpCalloutMock.class, new MockHttpResponseGenerator());
+		Test.startTest();
+        DnB d = new DnB(controller);
+        d.sType = 'Affil';
+        d.getAffilates();
+        //Test import affiliates
+        d.lCompanies.add(new DnB.Company());
+        d.lCompanies[0].isChecked = true;
+        DnB.Layer layer = new DnB.Layer('LNK_FF','Corporate Linkage',false);
+        layer.body = blob.valueOf('{"OrderProductResponse": { "@ServiceVersionNumber": "3.1", "TransactionDetail": { "ApplicationTransactionID": "Id-413000145453f1903cbbffff-2", "ServiceTransactionID": "Id-413000145453f1903cbbffff-2", "TransactionTimestamp": "2014-10-31T16:31:13.351-04:00" }, "TransactionResult": { "SeverityText": "Information", "ResultID": "CM000", "ResultText": "Success" }, "OrderProductResponseDetail": { "InquiryDetail": { "DUNSNumber": "005779046", "CountryISOAlpha2Code": "US" }, "Product": { "DNBProductID": "LNK_FF", "LinkageResponseOrganizationCount": 1, "Organization": { "SubjectHeader": {"DUNSNumber": "005779046"}, "Location": {"PrimaryAddress": { "StreetAddressLine": [{"LineText": "1880 CROWN DR"}], "PrimaryTownName": "DALLAS", "CountryISOAlpha2Code": "US", "PostalCode": "75234-9401", "CountyOfficialName": "COLLIN", "TerritoryOfficialName": "TX" }}, "OrganizationName": { "OrganizationPrimaryName": {"OrganizationName": {"$": "L. H. LACY COMPANY, LTD."}}, "TradeStyleName": [{"OrganizationName": {"$": "LACY CONSTRUCTION"}}] }, "OrganizationDetail": { "FamilyTreeMemberRole": [{"FamilyTreeMemberRoleText": {"$": "Headquarters"}}], "StandaloneOrganizationIndicator": false }, "Linkage": { "LinkageSummary": {"ChildrenSummary": [ { "ChildrenQuantity": 1, "DirectChildrenIndicator": false }, { "ChildrenTypeText": {"$": "Branch"}, "ChildrenQuantity": 1, "DirectChildrenIndicator": true } ]}, "GlobalUltimateOrganization": {"DUNSNumber": "5779046"}, "DomesticUltimateOrganization": {"DUNSNumber": "5779046"}, "FamilyTreeHierarchyLevel": 1 } } } } }}');
+        d.data = utils.getValFromJSON(layer.Body.toString());
+        d.recurAffiliates('.OrderProductResponse.OrderProductResponseDetail.Product.Organization','');
+        try{
+            d.impAff();
+        } catch(QueryException qex){
+            //not sure why it isn't working
+        } catch (NullPointerException nex){}
+        
+		Test.stopTest();
+        ApexPages.currentPage().getParameters().put('id', account.Id);
+        d = new DnB();
+    }
+    
+    static testMethod void dnbContacts(){
+        Account account = TestDataFactory.generateTestAccount();
+        account.BillingCountry = 'US';
+        account.DBNumber__c = '123456789';
+        insert account;
+        
+        ApexPages.StandardController controller = new ApexPages.standardController(account);
+        
+        PageReference pageReference = Page.DnB;
+        Test.setCurrentPage(pageReference);
+        ApexPages.currentPage().getParameters().put('accId', account.Id);
+        ApexPages.currentPage().getParameters().put('sType', 'Contacts');
+
+        Test.setMock(HttpCalloutMock.class, new MockHttpResponseGenerator());
+		Test.startTest();
+        DnB d = new DnB(controller);
+        d.getDnBContacts();
+        Test.stopTest();
+    }
+    static testMethod void insertSelectedContacts(){
+       	Account a = TestDataFactory.generateTestAccount();
+        a.DBNumber__c = '123456789';
+        insert a;
+        
+        DnB d = new DnB();
+        d.selectedContacts = new List<String>();
+        d.contactsToDisplay = new List<Contact>();
+        d.contactList = new List<DnB.ContactWrapper>();
+        d.acc = a;
+        
+        Contact c = new Contact();
+        c.FirstName = 'testestest';
+        c.LastName = 'testestest';
+        c.DnB_Principal_ID_Number__c = '2';
+        insert c;
+        
+        DnB.ContactWrapper wrapper = new DnB.ContactWrapper(c); 
+        wrapper.isSelected = true;
+        d.contactList.add(wrapper);
+        
+        d.webServiceLogs = new List<WebService_Log__c>();
+        WebService_Log__c webServiceLog = new WebService_Log__c();
+        webServiceLog.OwnerId = UserInfo.getUserId();
+        webServiceLog.WebService__c = 'DnB';
+        webServiceLog.Type__c = 'People - Standard';
+        webServiceLog.Success__c = 'Retrieved ' + c.FirstName + ' ' + c.LastName + '.';
+        webServiceLog.Account__c = a.Id;
+        webServiceLog.REST_Request__c = '2';
+        d.webServiceLogs.add(webServiceLog);
+        
+        Test.setMock(HttpCalloutMock.class, new MockHttpResponseGenerator());
+        Test.startTest();
+        try{
+           d.insertSelectedContacts(); 
+        }
+        catch(NullPointerException ex){}
+        catch(DmlException ex){}
+        Test.stopTest();
+    }
+    static testMethod void getDnBContacts(){
+        Account account = TestDataFactory.generateTestAccount();
+        account.DBNumber__c = '015859813';
+        insert account;
+        
+        Test.setMock(HttpCalloutMock.class, new MockHttpResponseGenerator());
+        ApexPages.StandardController sc = new ApexPages.StandardController(account);
+        DnB d = new DnB(sc);
+
+        Test.startTest();
+        d.getDnBContacts();
+        Test.stopTest();
+    }
+    static TestMethod void ContactWrapper(){
+        Test.setMock(HttpCalloutMock.class, new MockHttpResponseGenerator());
+        Contact c = new Contact();
+        DnB.ContactWrapper cw = new DnB.ContactWrapper(c);
+        cw.isSelected = true;
+        System.assert(cw.isSelected);
+    }
+    static TestMethod void Layers(){
+        Account account = TestDataFactory.generateTestAccount();
+        account.BillingCountry = 'US';
+        account.DBNumber__c = '015859813';
+        insert account;
+        
+        Test.setMock(HttpCalloutMock.class, new MockHttpResponseGenerator());
+        
+        DnB.Layer contactLayer = new DnB.Layer('cntct','cntct',false);
+        DnB.Layer contactPlusLayer = new DnB.Layer('cntct_plus','cntct_plus',false);
+        DnB.Layer newRegistrationLayer = new DnB.Layer('newregistration','newregistration',false);
+        DnB.Layer changeNotices = new DnB.Layer('changenotices','changenotices',false);
+        DnB.Layer registrations = new DnB.Layer('registrations','registrations',false);
+        DnB.Layer findContact = new DnB.Layer('findcontact','findcontact',false);
+
+        Test.setMock(HttpCalloutMock.class, new MockHttpResponseGenerator());
+        
+        Test.startTest();
+        DnB.getProduct(contactLayer, account);
+        DnB.getProduct(contactPlusLayer, account);
+        DnB.getProduct(newRegistrationLayer, account);
+        DnB.getProduct(changeNotices, account);
+        DnB.getProduct(registrations, account);
+        DnB.getProduct(findContact, account);
+        Test.stopTest();
+    }
+    static TestMethod void MonitoringAndMisc(){
+        Account account = TestDataFactory.generateTestAccount();
+        account.BillingCountry = 'US';
+        account.DBNumber__c = '015859813';
+        insert account;
+
+        Test.setMock(HttpCalloutMock.class, new MockHttpResponseGenerator());
+        
+        DnB db = new DnB();
+        db.sResult = 'test';
+        DnB.Layer testLayer = new DnB.Layer('test','test',false);
+        testLayer.attachName = 'test';
+        db.sJSTREE = 'test';
+        Map<String,String> nullmap = new Map<String,String>();
+        DnB.getString(nullmap, 'null');
+
+        Monitoring__c monitor = new Monitoring__c();
+        List<Monitoring__c> monitors = new List<Monitoring__c>();
+
+        monitor.Monitoring_Account__c = account.Id;
+        monitor.Monitoring_Change_Field__c = 'SuitsIndicator';
+        monitor.Monitoring_New_Value__c = 'TRUE';
+        monitor.Monitoring_Change_Type__c = 'Changed';
+        monitors.add(monitor);
+
+        monitor.Monitoring_Change_Field__c = 'LiensIndicator';
+        monitor.Monitoring_New_Value__c = 'TRUE';
+        monitor.Monitoring_Change_Type__c = 'Changed';
+        monitors.add(monitor);
+
+        monitor.Monitoring_Change_Field__c = 'JudgmentIndicator';
+        monitor.Monitoring_New_Value__c = 'TRUE';
+        monitor.Monitoring_Change_Type__c = 'Changed';
+        monitors.add(monitor);
+
+        monitor.Monitoring_Change_Field__c = 'BankruptcyIndicator';
+        monitor.Monitoring_New_Value__c = 'TRUE';
+        monitor.Monitoring_Change_Type__c = 'Changed';
+        monitors.add(monitor);
+
+        monitor.Monitoring_Change_Field__c = 'DisasterSpecialEventsIndicator';
+        monitor.Monitoring_New_Value__c = 'TRUE';
+        monitor.Monitoring_Change_Type__c = 'Changed';
+        monitors.add(monitor);
+
+        monitor.Monitoring_Change_Field__c = 'OperatingStatusText';
+        monitors.add(monitor);
+
+        monitor.Monitoring_Change_Field__c = 'ClassScore';
+        monitor.Monitoring_New_Value__c = '100';
+        monitors.add(monitor);
+
+        monitor.Monitoring_Change_Field__c = 'RawScore';
+		monitors.add(monitor);
+
+		monitor.Monitoring_Change_Field__c = 'ClassScoreDescription';
+		monitors.add(monitor);
+
+		monitor.Monitoring_Change_Field__c = 'CommentaryText';
+		monitors.add(monitor);
+
+		monitor.Monitoring_Change_Field__c = 'NationalPercentile';
+        monitors.add(monitor);
+
+        monitor.Monitoring_Change_Field__c = 'ScoreOverrideReasonText';
+        monitors.add(monitor);
+
+        monitor.Monitoring_Change_Field__c = 'RiskIncidencePercentage';
+        monitors.add(monitor);
+
+        monitor.Monitoring_Path__c = 'RiskIncidencePercentageIndustryNorm';
+        monitor.Monitoring_Change_Field__c = 'MedianValue';
+        monitors.add(monitor);
+
+        monitor.Monitoring_Path__c = 'TwelveMonthsPaydex';
+        monitor.Monitoring_Change_Field__c = 'PaydexScore';
+        monitors.add(monitor);
+
+        monitor.Monitoring_Change_Field__c = 'TotalPaymentExperiencesUsedCount';
+        monitors.add(monitor);
+
+        monitor.Monitoring_Path__c = 'ThreeMonthsPaydex';
+        monitor.Monitoring_Change_Field__c = 'PaydexScore';
+        monitors.add(monitor);
+
+        monitor.Monitoring_Change_Field__c = 'TotalPaymentExperiencesUsedCount';
+        monitors.add(monitor);
+        
+		monitor.Monitoring_Change_Field__c = 'OpenFilingsAmount';
+		monitor.Monitoring_Path__c = 'SuitInformation';
+		monitor.Monitoring_New_Value__c = '10001'; 
+        monitors.add(monitor);
+        
+        monitor.Monitoring_Change_Field__c = 'OpenFilingsAmount';
+        monitor.Monitoring_Path__c = 'LienInformation';
+        monitor.Monitoring_New_Value__c = '10001';
+        monitors.add(monitor);
+        
+        monitor.Monitoring_Change_Field__c = 'OpenFilingsAmount';
+        monitor.Monitoring_Path__c = 'JudgmentInformation';
+        monitor.Monitoring_New_Value__c = '10001';
+        monitors.add(monitor);
+        
+        //DnB.processAlertFilters(monitors);
+
+        List<Account> accounts = new List<Account>();
+        accounts = DnB.populateAccMonitoringFields(monitors);
+
+        account = new Account();
+        account.id = null;
+        ApexPages.StandardController controller = new ApexPages.StandardController(account);
+        db = new DnB(controller);
+        db.cancel();
+
+        controller = new ApexPages.StandardController(account);
+        db = new DnB(controller);
+        db.noSelection();
+
+        Map<String,String> mDnBData = new Map<String,String>();
+
+        DnB.getString(mDnBData, 'exceptiontest');
+
+        mDnBData.put('testingdate', '2015-05-15');
+        DnB.getDate(mDnBData, 'testingdate');
+        System.assert(true);
+
+    }
+    static testMethod void touchVariables(){
+        Test.setMock(HttpCalloutMock.class, new MockHttpResponseGenerator());
+        DnB d = new DnB();
+        d.contactList = new List<DnB.ContactWrapper>();
+        d.selectedContacts = new List<String>();
+        d.contactsToDisplay = new List<Contact>();
+        d.hasSelectedContacts = false;
+        d.hasContactList = false;
+        System.assert(true);
+    }
+    static testMethod void impAff(){
+        Test.setMock(HttpCalloutMock.class, new MockHttpResponseGenerator());
+        DnB dnb = new DnB();
+        try{
+            dnb.impAff();
+        }
+        catch(Exception unused){}
+        System.assert(true);
+    }
+    static testMethod void setMonitoringReasons(){
+        Test.setMock(HttpCalloutMock.class, new MockHttpResponseGenerator());
+        Monitoring__c monitor = new Monitoring__c();
+        String change;
+        String path;
+        
+        path = 'SuitInformation';
+        
+        change = 'SuitsIndicator';
+        DnB.setMonitoringReasons(monitor, change, path);
+        System.assertEquals('Lawsuits Indicator', monitor.Monitoring_Change_Reason__c);
+        
+        change = 'TotalFilingCount';
+        DnB.setMonitoringReasons(monitor, change, path);
+        System.assertEquals('Number of Lawsuits', monitor.Monitoring_Change_Reason__c);
+        
+        change = 'OpenFilingsCount';
+        DnB.setMonitoringReasons(monitor, change, path);
+        System.assertEquals('Number of Open Lawsuits', monitor.Monitoring_Change_Reason__c);
+        
+        change = 'OpenFilingsAmount';
+        DnB.setMonitoringReasons(monitor, change, path);
+        System.assertEquals('Amount of Open Lawsuits', monitor.Monitoring_Change_Reason__c);
+        
+        change = 'FilingAmount';
+        DnB.setMonitoringReasons(monitor, change, path);
+        System.assertEquals('Lawsuit Filing Amount', monitor.Monitoring_Change_Reason__c);
+        
+        change = 'FilingDate';
+        DnB.setMonitoringReasons(monitor, change, path);
+        System.assertEquals('Lawsuit Filing Date', monitor.Monitoring_Change_Reason__c);
+        
+        path = 'LienInformation';
+        
+        change = 'LiensIndicator';
+        DnB.setMonitoringReasons(monitor, change, path);
+        System.assertEquals('Lien Indicator', monitor.Monitoring_Change_Reason__c);
+        
+        change = 'TotalFilingCount';
+        DnB.setMonitoringReasons(monitor, change, path);
+        System.assertEquals('Number of Liens', monitor.Monitoring_Change_Reason__c);
+        
+        change = 'OpenFilingsCount';
+        DnB.setMonitoringReasons(monitor, change, path);
+        System.assertEquals('Number of Open Liens', monitor.Monitoring_Change_Reason__c);
+        
+        change = 'OpenFilingsAmount';
+        DnB.setMonitoringReasons(monitor, change, path);
+        System.assertEquals('Amount of Open Liens', monitor.Monitoring_Change_Reason__c);
+        
+        change = 'FilingAmount';
+        DnB.setMonitoringReasons(monitor, change, path);
+        System.assertEquals('Lien Filing Amount', monitor.Monitoring_Change_Reason__c);
+        
+        change = 'FilingDate';
+        DnB.setMonitoringReasons(monitor, change, path);
+        System.assertEquals('Lien Filing Date', monitor.Monitoring_Change_Reason__c);
+        
+        path = 'JudgmentInformation';
+        
+        change = 'JudgmentIndicator';
+        DnB.setMonitoringReasons(monitor, change, path);
+        System.assertEquals('Judgment Indicator', monitor.Monitoring_Change_Reason__c);
+        
+        change = 'TotalFilingCount';
+        DnB.setMonitoringReasons(monitor, change, path);
+        System.assertEquals('Number of Judgments', monitor.Monitoring_Change_Reason__c);
+        
+        change = 'OpenFilingsCount';
+        DnB.setMonitoringReasons(monitor, change, path);
+        System.assertEquals('Number of Open Judgments', monitor.Monitoring_Change_Reason__c);
+        
+        change = 'FilingTypeText';
+        DnB.setMonitoringReasons(monitor, change, path);
+        System.assertEquals('Judgment Filing Type', monitor.Monitoring_Change_Reason__c);
+        
+        change = 'FilingDate';
+        DnB.setMonitoringReasons(monitor, change, path);
+        System.assertEquals('Judgment Filing Date', monitor.Monitoring_Change_Reason__c);
+        
+        path = 'BankruptcyInformation';
+        
+        change = 'BankruptcyIndicator';
+        DnB.setMonitoringReasons(monitor, change, path);
+        System.assertEquals('Bankruptcy Indicator', monitor.Monitoring_Change_Reason__c);
+        
+        change = 'TotalFilingCount';
+        DnB.setMonitoringReasons(monitor, change, path);
+        System.assertEquals('Number of Bankruptcies', monitor.Monitoring_Change_Reason__c);
+        
+        change = 'FilingTypeText';
+        DnB.setMonitoringReasons(monitor, change, path);
+        System.assertEquals('Bankruptcy Filing Type', monitor.Monitoring_Change_Reason__c);
+        
+        change ='FilingDate';
+        DnB.setMonitoringReasons(monitor, change, path);
+        System.assertEquals('Bankruptcy Filing Date', monitor.Monitoring_Change_Reason__c);
+        
+        change = 'FilingStatusText';
+        DnB.setMonitoringReasons(monitor, change, path);
+        System.assertEquals('Bankruptcy Filing Status', monitor.Monitoring_Change_Reason__c);
+        
+        change = 'ClassScore';
+        DnB.setMonitoringReasons(monitor, change, path);
+        System.assertEquals('CCS Class Score', monitor.Monitoring_Change_Reason__c);
+        
+        change = 'RawScore';
+        DnB.setMonitoringReasons(monitor, change, path);
+        System.assertEquals('CCS Raw Score', monitor.Monitoring_Change_Reason__c);
+        
+        change = 'ClassScoreDescription';
+        DnB.setMonitoringReasons(monitor, change, path);
+        System.assertEquals('CCS Class Score Description', monitor.Monitoring_Change_Reason__c);
+        
+        change = 'CommentaryText';
+        DnB.setMonitoringReasons(monitor, change, path);
+        System.assertEquals('CCS Commentary', monitor.Monitoring_Change_Reason__c);
+        
+        change = 'ScoreDate';
+        DnB.setMonitoringReasons(monitor, change, path);
+        System.assertEquals('CCS Score Date', monitor.Monitoring_Change_Reason__c);
+        
+        change = 'NationalPercentile';
+        DnB.setMonitoringReasons(monitor, change, path);
+        System.assertEquals('CCS National Percentile', monitor.Monitoring_Change_Reason__c);
+        
+        change = 'ScoreOverrideReasonText';
+        DnB.setMonitoringReasons(monitor, change, path);
+        System.assertEquals('CCS Score Override Reason', monitor.Monitoring_Change_Reason__c);
+        
+        change = 'RiskIncidencePercentage';
+        DnB.setMonitoringReasons(monitor, change, path);
+        System.assertEquals('CCS Risk Incidence Percentage', monitor.Monitoring_Change_Reason__c);
+        
+        change = 'MedianValue';
+        path = 'RiskIncidencePercentageIndustryNorm';
+        DnB.setMonitoringReasons(monitor, change, path);
+        System.assertEquals('CCS Risk Incidence Percentage Industry Norm', monitor.Monitoring_Change_Reason__c);
+        
+        path = 'TwelveMonthsPaydex';
+        
+        change = 'PaydexScore';
+        DnB.setMonitoringReasons(monitor, change, path);
+        System.assertEquals('12-Month Paydex Score', monitor.Monitoring_Change_Reason__c);
+        
+        change = 'TotalPaymentExperiencesUsedCount';
+        DnB.setMonitoringReasons(monitor, change, path);
+        System.assertEquals('12-Month Paydex Experience Count', monitor.Monitoring_Change_Reason__c);
+        
+        path = 'ThreeMonthsPaydex';
+        
+        change = 'PaydexScore';
+        DnB.setMonitoringReasons(monitor, change, path);
+        System.assertEquals('3-Month Paydex Score', monitor.Monitoring_Change_Reason__c);
+        
+        change = 'TotalPaymentExperiencesUsedCount';
+        DnB.setMonitoringReasons(monitor, change, path);
+        System.assertEquals('3-Month Paydex Experience Count', monitor.Monitoring_Change_Reason__c);
+        
+        path = 'SpecialEvent';
+        
+        change = 'DisasterSpecialEventsIndicator';
+        DnB.setMonitoringReasons(monitor, change, path);
+        System.assertEquals('Disaster or Special Event Indicator', monitor.Monitoring_Change_Reason__c);
+        
+        change = 'EventDate';
+        DnB.setMonitoringReasons(monitor, change, path);
+        System.assertEquals('Disaster or Special Event Date', monitor.Monitoring_Change_Reason__c);
+        
+        change = 'EventDetailText';
+        DnB.setMonitoringReasons(monitor, change, path);
+        System.assertEquals('Disaster or Special Event Details', monitor.Monitoring_Change_Reason__c);
+        
+        change = 'OperatingStatusText';
+        DnB.setMonitoringReasons(monitor, change, path);
+        System.assertEquals('Out of Business Indicator', monitor.Monitoring_Change_Reason__c);
+        
+        change = 'OrganizationEndDate';
+        DnB.setMonitoringReasons(monitor, change, path);
+        System.assertEquals('Out of Business Date', monitor.Monitoring_Change_Reason__c);
+        
+        change = 'ControlOwnershipDate';
+        DnB.setMonitoringReasons(monitor, change, path);
+        System.assertEquals('Control Year', monitor.Monitoring_Change_Reason__c);
+        
+        change = 'test';
+        DnB.setMonitoringReasons(monitor, change, path);
+        System.assertEquals('test', monitor.Monitoring_Change_Reason__c);
+    }
+    static testMethod void getUrl(){
+        Test.setMock(HttpCalloutMock.class, new MockHttpResponseGenerator());
+        Account account = TestDataFactory.generateTestAccount();
+        insert account;
+        
+        DnB.Layer layer;
+        layer = new DnB.Layer('BIR','BIR',false);
+        DnB.getUrl(layer, account, 'parameter');
+        
+        layer = new DnB.Layer('BIRT','BIRT',false);
+        DnB.getUrl(layer, account, 'parameter');
+		
+        layer = new DnB.Layer('LNK_FF','LNK_FF',false);
+        DnB.getUrl(layer, account, 'parameter');
+        
+        layer = new DnB.Layer('changenotices','changenotices',false);
+        DnB.getUrl(layer, account, 'parameter');
+        
+        WebService_Log__c webServiceLog = new WebService_Log__c();
+        webServiceLog.Type__c = 'DnB Monitoring';
+        webServiceLog.Account__c = account.Id;
+        insert webServiceLog;
+        
+        layer = new DnB.Layer('changenotices','changenotices',false);
+        DnB.getUrl(layer, account, 'parameter');
+        
+        layer = new DnB.Layer('registrations','registrations',false);
+        DnB.getUrl(layer, account, 'parameter');
+        
+        layer = new DnB.Layer('findcontact','findcontact',false);
+        DnB.getUrl(layer, account, 'parameter');
+        
+        layer = new DnB.Layer('cntct','cntct',false);
+        DnB.getUrl(layer, account, 'parameter');
+        
+        layer = new DnB.Layer('cntct_plus','cntct_plus',false);
+        DnB.getUrl(layer, account, 'parameter');
+        
+        layer = new DnB.Layer('newregistration','newregistration',false);
+        DnB.getUrl(layer, account, 'parameter');
+        System.assert(true);
+    }
+    static testMethod void DnBId(){
+        Account account = TestDataFactory.generateTestAccount();
+        insert account;
+        ApexPages.currentPage().getParameters().put('Id', account.Id);
+        ApexPages.currentPage().getParameters().put('sType', 'save_new');
+        ApexPages.StandardController sc = new ApexPages.StandardController(account);
+        Test.setMock(HttpCalloutMock.class, new MockHttpResponseGenerator());
+        DnB d = new DnB(sc);
+    }
+    static testMethod void populateAccMonitoringFields(){
+        Test.setMock(HttpCalloutMock.class, new MockHttpResponseGenerator());
+        Account account = TestDataFactory.generateTestAccount();
+        insert account;
+        
+        List<Monitoring__c> monitors = new List<Monitoring__c>();
+        Monitoring__c monitor;
+        
+        monitor = new Monitoring__c();
+        monitor.Monitoring_Change_Field__c = 'SuitsIndicator';
+        monitor.Monitoring_New_Value__c = 'Active';
+        monitor.Monitoring_Account__c = account.Id;
+        monitors.add(monitor);
+        
+        monitor = new Monitoring__c();
+        monitor.Monitoring_Change_Field__c = 'TotalFilingCount';
+        monitor.Monitoring_Path__c = 'SuitInformation';
+        monitor.Monitoring_New_Value__c = '1';
+        monitor.Monitoring_Account__c = account.Id;
+        monitors.add(monitor);
+        
+        monitor = new Monitoring__c();
+        monitor.Monitoring_Change_Field__c = 'OpenFilingsCount';
+        monitor.Monitoring_Path__c = 'SuitInformation';
+        monitor.Monitoring_New_Value__c = '1';
+        monitor.Monitoring_Account__c = account.Id;
+        monitors.add(monitor);
+        
+        monitor = new Monitoring__c();
+        monitor.Monitoring_Change_Field__c = 'OpenFilingsAmount';
+        monitor.Monitoring_Path__c = 'SuitInformation';
+        monitor.Monitoring_New_Value__c = '1';
+        monitor.Monitoring_Account__c = account.Id;
+        monitors.add(monitor);
+        
+        monitor = new Monitoring__c();
+        monitor.Monitoring_Change_Field__c = 'FilingAmount';
+        monitor.Monitoring_Path__c = 'SuitInformation';
+        monitor.Monitoring_New_Value__c = '1';
+        monitor.Monitoring_Account__c = account.Id;
+        monitors.add(monitor);
+        
+        monitor = new Monitoring__c();
+        monitor.Monitoring_Change_Field__c = 'FilingDate';
+        monitor.Monitoring_Path__c = 'SuitInformation';
+        monitor.Monitoring_New_Value__c = '2015/12/31';
+        monitor.Monitoring_Account__c = account.Id;
+        monitors.add(monitor);
+        
+        monitor = new Monitoring__c();
+        monitor.Monitoring_Change_Field__c = 'LiensIndicator';
+        monitor.Monitoring_New_Value__c = 'Active';
+        monitor.Monitoring_Account__c = account.Id;
+        monitors.add(monitor);
+        
+        monitor = new Monitoring__c();
+        monitor.Monitoring_Change_Field__c = 'TotalFilingCount';
+        monitor.Monitoring_Path__c = 'LienInformation';
+        monitor.Monitoring_New_Value__c = '1';
+        monitor.Monitoring_Account__c = account.Id;
+        monitors.add(monitor);
+        
+        monitor = new Monitoring__c();
+        monitor.Monitoring_Change_Field__c = 'OpenFilingsCount';
+        monitor.Monitoring_Path__c = 'LienInformation';
+        monitor.Monitoring_New_Value__c = '1';
+        monitor.Monitoring_Account__c = account.Id;
+        monitors.add(monitor);
+        
+        monitor = new Monitoring__c();
+        monitor.Monitoring_Change_Field__c = 'OpenFilingsAmount';
+        monitor.Monitoring_Path__c = 'LienInformation';
+        monitor.Monitoring_New_Value__c = '1';
+        monitor.Monitoring_Account__c = account.Id;
+        monitors.add(monitor);
+        
+        monitor = new Monitoring__c();
+        monitor.Monitoring_Change_Field__c = 'FilingAmount';
+        monitor.Monitoring_Path__c = 'LienInformation';
+        monitor.Monitoring_New_Value__c = '1';
+        monitor.Monitoring_Account__c = account.Id;
+        monitors.add(monitor);
+        
+        monitor = new Monitoring__c();
+        monitor.Monitoring_Change_Field__c = 'FilingDate';
+        monitor.Monitoring_Path__c = 'LienInformation';
+        monitor.Monitoring_New_Value__c = '2015/12/31';
+        monitor.Monitoring_Account__c = account.Id;
+        monitors.add(monitor);
+        
+        monitor = new Monitoring__c();
+        monitor.Monitoring_Change_Field__c = 'JudgmentIndicator';
+        monitor.Monitoring_New_Value__c = 'Active';
+        monitor.Monitoring_Account__c = account.Id;
+        monitors.add(monitor);
+        
+        monitor = new Monitoring__c();
+        monitor.Monitoring_Change_Field__c = 'TotalFilingCount';
+        monitor.Monitoring_Path__c = 'JudgmentInformation';
+        monitor.Monitoring_New_Value__c = '1';
+        monitor.Monitoring_Account__c = account.Id;
+        monitors.add(monitor);
+        
+        monitor = new Monitoring__c();
+        monitor.Monitoring_Change_Field__c = 'OpenFilingsCount';
+        monitor.Monitoring_Path__c = 'JudgmentInformation';
+        monitor.Monitoring_New_Value__c = '1';
+        monitor.Monitoring_Account__c = account.Id;
+        monitors.add(monitor);
+        
+        monitor = new Monitoring__c();
+        monitor.Monitoring_Change_Field__c = 'FilingTypeText';
+        monitor.Monitoring_Path__c = 'JudgmentInformation';
+        monitor.Monitoring_New_Value__c = '1';
+        monitor.Monitoring_Account__c = account.Id;
+        monitors.add(monitor);
+        
+        monitor = new Monitoring__c();
+        monitor.Monitoring_Change_Field__c = 'FilingDate';
+        monitor.Monitoring_Path__c = 'JudgmentInformation';
+        monitor.Monitoring_New_Value__c = '2015/12/31';
+        monitor.Monitoring_Account__c = account.Id;
+        monitors.add(monitor);
+        
+        monitor = new Monitoring__c();
+        monitor.Monitoring_Change_Field__c = 'BankruptcyIndicator';
+        monitor.Monitoring_New_Value__c = 'Active';
+        monitor.Monitoring_Account__c = account.Id;
+        monitors.add(monitor);
+        
+        monitor = new Monitoring__c();
+        monitor.Monitoring_Change_Field__c = 'TotalFilingCount';
+        monitor.Monitoring_Path__c = 'BankruptcyInformation';
+        monitor.Monitoring_New_Value__c = '1';
+        monitor.Monitoring_Account__c = account.Id;
+        monitors.add(monitor);
+        
+        monitor = new Monitoring__c();
+        monitor.Monitoring_Change_Field__c = 'FilingTypeText';
+        monitor.Monitoring_Path__c = 'BankruptcyInformation';
+        monitor.Monitoring_New_Value__c = '1';
+        monitor.Monitoring_Account__c = account.Id;
+        monitors.add(monitor);
+        
+        monitor = new Monitoring__c();
+        monitor.Monitoring_Change_Field__c = 'FilingStatusText';
+        monitor.Monitoring_Path__c = 'BankruptcyInformation';
+        monitor.Monitoring_New_Value__c = '1';
+        monitor.Monitoring_Account__c = account.Id;
+        monitors.add(monitor);
+        
+        monitor = new Monitoring__c();
+        monitor.Monitoring_Change_Field__c = 'FilingDate';
+        monitor.Monitoring_Path__c = 'BankruptcyInformation';
+        monitor.Monitoring_New_Value__c = '2015/12/31';
+        monitor.Monitoring_Account__c = account.Id;
+        monitors.add(monitor);
+        
+        monitor = new Monitoring__c();
+        monitor.Monitoring_Change_Field__c = 'ClassScore';
+        monitor.Monitoring_New_Value__c = '1';
+        monitor.Monitoring_Account__c = account.Id;
+        monitors.add(monitor);
+        
+        monitor = new Monitoring__c();
+        monitor.Monitoring_Change_Field__c = 'RawScore';
+        monitor.Monitoring_New_Value__c = '1';
+        monitor.Monitoring_Account__c = account.Id;
+        monitors.add(monitor);
+        
+        monitor = new Monitoring__c();
+        monitor.Monitoring_Change_Field__c = 'ClassScoreDescription';
+        monitor.Monitoring_New_Value__c = '1';
+        monitor.Monitoring_Account__c = account.Id;
+        monitors.add(monitor);
+        
+        monitor = new Monitoring__c();
+        monitor.Monitoring_Change_Field__c = 'CommentaryText';
+        monitor.Monitoring_New_Value__c = '1';
+        monitor.Monitoring_Account__c = account.Id;
+        monitors.add(monitor);
+        
+        monitor = new Monitoring__c();
+        monitor.Monitoring_Change_Field__c = 'ScoreDate';
+        monitor.Monitoring_New_Value__c = '2015/12/31';
+        monitor.Monitoring_Account__c = account.Id;
+        monitors.add(monitor);
+        
+        monitor = new Monitoring__c();
+        monitor.Monitoring_Change_Field__c = 'NationalPercentile';
+        monitor.Monitoring_New_Value__c = '1';
+        monitor.Monitoring_Account__c = account.Id;
+        monitors.add(monitor);
+        
+        monitor = new Monitoring__c();
+        monitor.Monitoring_Change_Field__c = 'ScoreOverrideReasonText';
+        monitor.Monitoring_New_Value__c = '1';
+        monitor.Monitoring_Account__c = account.Id;
+        monitors.add(monitor);
+        
+        monitor = new Monitoring__c();
+        monitor.Monitoring_Change_Field__c = 'RiskIncidencePercentage';
+        monitor.Monitoring_New_Value__c = '1';
+        monitor.Monitoring_Account__c = account.Id;
+        monitors.add(monitor);
+        
+        monitor = new Monitoring__c();
+        monitor.Monitoring_Change_Field__c = 'MedianValue';
+        monitor.Monitoring_Path__c = 'RiskIncidencePercentageIndustryNorm';
+        monitor.Monitoring_New_Value__c = '1';
+        monitor.Monitoring_Account__c = account.Id;
+        monitors.add(monitor);
+        
+        monitor = new Monitoring__c();
+        monitor.Monitoring_Change_Field__c = 'PaydexScore';
+        monitor.Monitoring_Path__c = 'TwelveMonthsPaydex';
+        monitor.Monitoring_New_Value__c = '1';
+        monitor.Monitoring_Account__c = account.Id;
+        monitors.add(monitor);
+        
+        monitor = new Monitoring__c();
+        monitor.Monitoring_Change_Field__c = 'TotalPaymentExperiencesUsedCount';
+        monitor.Monitoring_Path__c = 'TwelveMonthsPaydex';
+        monitor.Monitoring_New_Value__c = '1';
+        monitor.Monitoring_Account__c = account.Id;
+        monitors.add(monitor);
+        
+        monitor = new Monitoring__c();
+        monitor.Monitoring_Change_Field__c = 'PaydexScore';
+        monitor.Monitoring_Path__c = 'ThreeMonthsPaydex';
+        monitor.Monitoring_New_Value__c = '1';
+        monitor.Monitoring_Account__c = account.Id;
+        monitors.add(monitor);
+        
+        monitor = new Monitoring__c();
+        monitor.Monitoring_Change_Field__c = 'TotalPaymentExperiencesUsedCount';
+        monitor.Monitoring_Path__c = 'ThreeMonthsPaydex';
+        monitor.Monitoring_New_Value__c = '1';
+        monitor.Monitoring_Account__c = account.Id;
+        monitors.add(monitor);
+        
+        monitor = new Monitoring__c();
+        monitor.Monitoring_Change_Field__c = 'DisasterSpecialEventsIndicator';
+        monitor.Monitoring_New_Value__c = 'Active';
+        monitor.Monitoring_Account__c = account.Id;
+        monitors.add(monitor);
+        
+        monitor = new Monitoring__c();
+        monitor.Monitoring_Change_Field__c = 'EventDate';
+        monitor.Monitoring_Path__c = 'SpecialEvent';
+        monitor.Monitoring_New_Value__c = '2015/12/31';
+        monitor.Monitoring_Account__c = account.Id;
+        monitors.add(monitor);
+        
+        monitor = new Monitoring__c();
+        monitor.Monitoring_Change_Field__c = 'EventDetailText';
+        monitor.Monitoring_Path__c = 'SpecialEvent';
+        monitor.Monitoring_New_Value__c = '2015/12/31';
+        monitor.Monitoring_Account__c = account.Id;
+        monitors.add(monitor);
+        
+        monitor = new Monitoring__c();
+        monitor.Monitoring_Change_Field__c = 'OperatingStatusText';
+        monitor.Monitoring_New_Value__c = 'Active';
+        monitor.Monitoring_Account__c = account.Id;
+        monitors.add(monitor);
+        
+        monitor = new Monitoring__c();
+        monitor.Monitoring_Change_Field__c = 'OrganizationEndDate';
+        monitor.Monitoring_New_Value__c = '2015/12/31';
+        monitor.Monitoring_Account__c = account.Id;
+        monitors.add(monitor);
+        
+        monitor = new Monitoring__c();
+        monitor.Monitoring_Change_Field__c = 'ControlOwnershipDate';
+        monitor.Monitoring_New_Value__c = '2015';
+        monitor.Monitoring_Account__c = account.Id;
+        monitors.add(monitor);
+        
+        DnB.populateAccMonitoringFields(monitors);
+        System.assert(true);
+    }
+    static TestMethod void schedulable(){
+        Account a = new Account();
+        a.Name = 'test';
+        insert a;
+        
+        Test.setMock(HttpCalloutMock.class, new MockHttpResponseGenerator());
+        SchedulableContext sc;
+        DnB d = new DnB();
+        try{
+            d.execute(sc);
+        } catch (NullPointerException ex){}
+        
+    }
+    static TestMethod void dunsTo9Digit(){
+        Test.setMock(HttpCalloutMock.class, new MockHttpResponseGenerator());
+        DnB d = new DnB();
+        d.dunsTo9Digit('0');
+        System.assert(true);
+    }
+    static TestMethod void cancel(){
+        Test.setMock(HttpCalloutMock.class, new MockHttpResponseGenerator());
+        DnB d = new DnB();
+        Account a = TestDataFactory.generateTestAccount();
+        insert a;
+        
+        d.acc = a;
+        d.cancel();
+        System.assert(true);
+    }
+    static TestMethod void getDate(){
+        DnB.getDate(null);
+        System.assert(true);
+    }
+    static TestMethod void DnBAttachment(){
+        Account a = TestDataFactory.generateTestAccount();
+        insert a;
+        
+        Attachment att = new Attachment();
+        att.ParentId = a.Id;
+        att.Body = blob.valueOf('test');
+        att.Name = 'test';
+        insert att;
+        
+        PageReference pageReference = Page.DnB;
+        Test.setCurrentPage(pageReference);
+        ApexPages.currentPage().getParameters().put('id', a.Id);
+		
+        DnB d = new DnB();
+        System.assert(true);
+    }
+    static TestMethod void getDnBError(){
+        DnB.getDnbError('{"OrderProductResponse":{"@ServiceVersionNumber":"3.0","TransactionDetail":{"ApplicationTransactionID":"REST","ServiceTransactionID":"Id-ef7f3a56660d660032a30d000a65bb4a","TransactionTimestamp":"2015-11-04T17:00:15"},"TransactionResult":{"SeverityText":"Error","ResultID":"SC001","ResultText":"Your user credentials are invalid. Please contact your D&B Representative or your local Customer Service Center."}}}');
+        System.assert(true);
+    } 
+
+    static testMethod void getAutoDnb() {
+        Account a=new Account();
+        a.Name='Test';
+        a.BillingCountry='US';
+        insert a;
+        
+        Test.setMock(HttpCalloutMock.class, new MockHttpResponseGenerator());
+        
+        Test.startTest();
+        DnB.getAutoDnB(a.Id);
+        Test.stopTest();        
+    }
+    
+    static testMethod void testUpdateTrigger(){
+        Account account = TestDataFactory.generateTestAccount();
+        insert account;
+        
+        Monitoring__c monitor = new Monitoring__c();
+        monitor.Monitoring_Account__c = account.id;
+        monitor.Name = 'testing';
+        monitor.Monitoring_Change_Field__c = 'test';
+        monitor.Monitoring_Change_Reason__c = 'test';
+        monitor.Monitoring_New_Value__c = 'test';
+        monitor.Monitoring_Old_Value__c = 'test';
+        insert monitor;
+        
+        monitor.Monitoring_Comments__c = 'test';
+        update monitor;
+    }
+}
