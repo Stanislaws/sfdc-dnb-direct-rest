@@ -984,4 +984,22 @@ private class testDnB{
         monitor.Monitoring_Comments__c = 'test';
         update monitor;
     }
+    
+    static testMethod void testAfterInsertTrigger(){
+        Account account = TestDataFactory.generateTestAccount();
+        insert account;
+        
+        Monitoring__c monitor = new Monitoring__c();
+        monitor.Monitoring_Account__c = account.id;
+        monitor.Name = 'testing';
+        monitor.Monitoring_Change_Field__c = 'PaydexScore';
+        monitor.Monitoring_Change_Reason__c = 'Changed';
+        monitor.Monitoring_Path__c = 'TwelveMonthsPaydex';
+        monitor.Monitoring_New_Value__c = '59';
+        monitor.Monitoring_Old_Value__c = '60';
+        try{
+            insert monitor;      
+        }catch(DmlException dex){}
+
+    }
 }
