@@ -4,28 +4,36 @@
 trigger trg_DnBMon_After on Monitoring__c (after insert) {
     List<Monitoring__c> monitors = new List<Monitoring__c>();
     for(Monitoring__c monitor : trigger.new){
-        String field = monitor.Monitoring_Change_Field__c;
-        String value = monitor.Monitoring_New_Value__c;
-        String oldValue = monitor.Monitoring_Old_Value__c;
-        String path = monitor.Monitoring_Path__c;
-        if(field == 'OpenFilingsAmount' && Integer.valueOf(value) > 10000 && (path.contains('JudgmentInformation') || path.contains('LienInformation')|| path.contains('SuitInformation'))) monitors.add(monitor);
-        if(field == 'DisasterSpecialEventsIndicator' && value == 'Active')  monitors.add(monitor);
-        if(field == 'BankruptcyIndicator' && value == 'Active') monitors.add(monitor);
-        if(field == 'ControlOwnershipDate' && value == null) monitors.add(monitor);
-        if(field == 'OrganizationEndDate' && value != null) monitors.add(monitor);
-        if(field == 'PaydexScore' && path.contains('TwelveMonthsPaydex') && Decimal.valueOf(value) < 60) monitors.add(monitor);
-        if(field == 'ClassScore' && (Decimal.valueOf(oldValue) - Decimal.valueOf(value) >= 5)) monitors.add(monitor);
-        if(field == 'PaydexScore' && path.contains('TwelveMonthsPaydex')  && (Math.abs(Decimal.valueOf(value) - Decimal.valueOf(oldValue)))  / (Math.abs(Decimal.valueOf(oldValue) * 100)) >= 10  && Decimal.valueOf(value) < Decimal.valueOf(oldValue)) monitors.add(monitor);
-        if(field == 'RawScore' && (Math.abs(Decimal.valueOf(value) - Decimal.valueOf(oldValue))) / (Math.abs(Decimal.valueOf(oldValue) * 100)) >= 10 && Decimal.valueOf(value) < Decimal.valueOf(oldValue)) monitors.add(monitor);
-        
+        if(processFilters(monitor) != null) monitors.add(monitor);
     }
     
     if(monitors.size() > 0){
         for(Monitoring__c monitor : monitors){
             Approval.ProcessSubmitRequest request = new Approval.ProcessSubmitRequest();
-            request.setComments('Automatically triggered by filter');
+            String field = monitor.Monitoring_Change_Field__c;
+            String value = monitor.Monitoring_New_Value__c;
+            String oldValue = monitor.Monitoring_Old_Value__c;
+            String path = monitor.Monitoring_Path__c;
+            request.setComments(processFilters(monitor));
             request.setObjectId(monitor.id);
             Approval.process(request);
         }
+    }
+    @TestVisible
+    private String processFilters(Monitoring__c monitor){
+        String field = monitor.Monitoring_Change_Field__c;
+        String value = monitor.Monitoring_New_Value__c;
+        String oldValue = monitor.Monitoring_Old_Value__c;
+        String path = monitor.Monitoring_Path__c;
+        if(field == 'OpenFilingsAmount' && Integer.valueOf(value) > 10000 && (path.contains('JudgmentInformation') || path.contains('LienInformation')|| path.contains('SuitInformation'))) return 'Judgment, Lien or Suit over $10,000.00';
+        else if(field == 'DisasterSpecialEventsIndicator' && value == 'Active')  return 'Disaster or Special Event indicator';
+        else if(field == 'BankruptcyIndicator' && value == 'Active') return 'Bankruptcy indicator';
+        else if(field == 'ControlOwnershipDate' && value == null) return 'Control ownership indicator';
+        else if(field == 'OrganizationEndDate' && value != null) return 'Out of business indicator';
+        else if(field == 'PaydexScore' && path.contains('TwelveMonthsPaydex') && Decimal.valueOf(value) < 60) return 'Twelve-Month Paydex under 60';
+        else if(field == 'ClassScore' && (Decimal.valueOf(oldValue) - Decimal.valueOf(value) >= 5)) return 'Class score dropped more than 5 points';
+        else if(field == 'PaydexScore' && path.contains('TwelveMonthsPaydex')  && (Math.abs(Decimal.valueOf(value) - Decimal.valueOf(oldValue)))  / (Math.abs(Decimal.valueOf(oldValue) * 100)) >= 10  && Decimal.valueOf(value) < Decimal.valueOf(oldValue)) return 'Paydex dropped 10%';
+        else if(field == 'RawScore' && (Math.abs(Decimal.valueOf(value) - Decimal.valueOf(oldValue))) / (Math.abs(Decimal.valueOf(oldValue) * 100)) >= 10 && Decimal.valueOf(value) < Decimal.valueOf(oldValue)) return 'Raw Paydex dropped 10%';
+        else return null;
     }
 }
